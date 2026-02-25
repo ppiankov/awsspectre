@@ -8,3 +8,5 @@ coverage.out
 *.test
 *.prof
 .DS_Store
+
+# Claude Code session files
