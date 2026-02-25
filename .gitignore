@@ -8,3 +8,7 @@ coverage.out
 *.test
 *.prof
 .DS_Store
+
+# Claude Code session files
+docs/context.txt
+docs/work-orders.md
