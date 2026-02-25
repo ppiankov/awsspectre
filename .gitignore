@@ -1,0 +1,10 @@
+bin/
+dist/
+coverage.out
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.prof
+.DS_Store
