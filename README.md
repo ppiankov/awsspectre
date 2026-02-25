@@ -1,7 +1,8 @@
 # AWSSpectre
 
+[![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
 [![CI](https://github.com/ppiankov/awsspectre/actions/workflows/ci.yml/badge.svg)](https://github.com/ppiankov/awsspectre/actions/workflows/ci.yml)
-[![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go 1.24+](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 AWS resource waste auditor. Finds idle, orphaned, and oversized resources costing money for nothing.
@@ -197,6 +198,25 @@ Key design decisions:
 - Two-level bounded concurrency: max 4 regions, max 10 API calls per region.
 - Pricing data is embedded via `go:embed` with curated on-demand rates, falling back to us-east-1 for unknown regions.
 - Scanner errors are collected, not fatal -- one scanner failure does not abort the whole scan.
+
+## Project Status
+
+**Status: Beta** · **v0.1.0** · Pre-1.0
+
+| Milestone | Status |
+|-----------|--------|
+| 8 resource scanners (EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, snapshots, security groups) | Complete |
+| Multi-region parallel scanning with bounded concurrency | Complete |
+| Embedded on-demand pricing with per-finding cost estimates | Complete |
+| 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |
+| Config file + init command with IAM policy generation | Complete |
+| CI pipeline (test/lint/build) | Complete |
+| Homebrew + Docker distribution | Complete |
+| Test coverage >85% | Complete |
+| API stability guarantees | Partial |
+| v1.0 release | Planned |
+
+Pre-1.0: CLI flags and config schemas may change between minor versions. JSON output structure (`spectre/v1`) is stable.
 
 ## Known limitations
 
