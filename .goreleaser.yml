@@ -1,0 +1,81 @@
+version: 2
+
+builds:
+  - id: awsspectre
+    main: ./cmd/awsspectre/
+    binary: awsspectre
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - repository:
+      owner: ppiankov
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/ppiankov/awsspectre"
+    description: "AWS resource waste auditor — finds idle, orphaned, and oversized resources"
+    license: MIT
+    install: |
+      bin.install "awsspectre"
+    test: |
+      system "#{bin}/awsspectre", "version"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/ppiankov/awsspectre:{{ .Version }}-amd64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    goarch: amd64
+  - image_templates:
+      - "ghcr.io/ppiankov/awsspectre:{{ .Version }}-arm64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/ppiankov/awsspectre:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/ppiankov/awsspectre:{{ .Version }}-amd64"
+      - "ghcr.io/ppiankov/awsspectre:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/ppiankov/awsspectre:latest"
+    image_templates:
+      - "ghcr.io/ppiankov/awsspectre:{{ .Version }}-amd64"
+      - "ghcr.io/ppiankov/awsspectre:{{ .Version }}-arm64"
