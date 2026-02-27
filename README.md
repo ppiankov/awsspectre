@@ -71,8 +71,8 @@ Requires valid AWS credentials (environment, profile, or IAM role).
 
 | Resource | Finding | Signal | Severity |
 |----------|---------|--------|----------|
-| EC2 instances | `IDLE_EC2` | CPU < 5% over idle window | high |
-| EC2 instances | `STOPPED_EC2` | Stopped > 30 days | high |
+| EC2 instances | `IDLE_EC2` | CPU < 5% and memory < 50% (if available) over idle window | high |
+| EC2 instances | `STOPPED_EC2` | Stopped > 30 days | medium |
 | EBS volumes | `DETACHED_EBS` | Detached (available state) | high |
 | Elastic IPs | `UNUSED_EIP` | Not associated with running instance | medium |
 | ALB | `IDLE_ALB` | Zero healthy targets or zero requests | high |

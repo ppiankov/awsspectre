@@ -131,7 +131,7 @@ func sarifLevel(s awstype.Severity) string {
 func buildSARIFRules() []sarifRule {
 	return []sarifRule{
 		{ID: string(awstype.FindingIdleEC2), ShortDescription: sarifMessage{Text: "Idle EC2 instance"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
-		{ID: string(awstype.FindingStoppedEC2), ShortDescription: sarifMessage{Text: "Stopped EC2 instance"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
+		{ID: string(awstype.FindingStoppedEC2), ShortDescription: sarifMessage{Text: "Stopped EC2 instance"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingDetachedEBS), ShortDescription: sarifMessage{Text: "Detached EBS volume"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingUnusedEIP), ShortDescription: sarifMessage{Text: "Unused Elastic IP"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingIdleALB), ShortDescription: sarifMessage{Text: "Idle Application Load Balancer"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
