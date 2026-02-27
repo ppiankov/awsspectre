@@ -18,6 +18,10 @@ const stoppedThresholdDays = 30
 // idleCPUThreshold is the CPU utilization percentage below which an instance is considered idle.
 const idleCPUThreshold = 5.0
 
+// highMemoryThreshold is the memory utilization percentage above which an instance
+// is considered busy despite low CPU. Requires CloudWatch Agent.
+const highMemoryThreshold = 50.0
+
 // EC2API is the minimal interface for EC2 instance operations.
 type EC2API interface {
 	DescribeInstances(ctx context.Context, input *ec2.DescribeInstancesInput, opts ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
@@ -68,16 +72,15 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			daysStopped := int(now.Sub(stoppedAt).Hours() / 24)
 			if daysStopped >= stoppedThresholdDays {
 				instanceType := string(inst.InstanceType)
-				cost := pricing.MonthlyEC2Cost(instanceType, s.region)
 				result.Findings = append(result.Findings, Finding{
 					ID:                    FindingStoppedEC2,
-					Severity:              SeverityHigh,
+					Severity:              SeverityMedium,
 					ResourceType:          ResourceEC2,
 					ResourceID:            deref(inst.InstanceId),
 					ResourceName:          instanceName(inst),
 					Region:                s.region,
 					Message:               fmt.Sprintf("Stopped for %d days", daysStopped),
-					EstimatedMonthlyWaste: cost,
+					EstimatedMonthlyWaste: 0,
 					Metadata: map[string]any{
 						"instance_type": instanceType,
 						"days_stopped":  daysStopped,
@@ -93,12 +96,19 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		}
 	}
 
-	// Check CPU utilization for running instances
+	// Check CPU and memory utilization for running instances
 	if len(runningIDs) > 0 {
 		cpuMap, err := s.metrics.FetchAverage(ctx, "AWS/EC2", "CPUUtilization", "InstanceId", runningIDs, cfg.IdleDays)
 		if err != nil {
 			slog.Warn("Failed to fetch EC2 CPU metrics", "region", s.region, "error", err)
 		} else {
+			// Fetch memory utilization from CloudWatch Agent (optional — not all instances have the agent)
+			memMap, memErr := s.metrics.FetchAverage(ctx, "CWAgent", "mem_used_percent", "InstanceId", runningIDs, cfg.IdleDays)
+			if memErr != nil {
+				slog.Warn("Failed to fetch EC2 memory metrics", "region", s.region, "error", memErr)
+				memMap = make(map[string]float64)
+			}
+
 			instanceMap := buildInstanceMap(instances)
 			for _, id := range runningIDs {
 				avgCPU, ok := cpuMap[id]
@@ -106,6 +116,14 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 					continue
 				}
 				if avgCPU < idleCPUThreshold {
+					// Check if memory utilization is high enough to override the idle CPU signal
+					avgMem, hasMem := memMap[id]
+					if hasMem && avgMem >= highMemoryThreshold {
+						slog.Debug("Instance has low CPU but high memory — not idle",
+							"instance", id, "cpu", avgCPU, "memory", avgMem)
+						continue
+					}
+
 					inst := instanceMap[id]
 					instanceType := string(inst.InstanceType)
 					cost := pricing.MonthlyEC2Cost(instanceType, s.region)
@@ -116,11 +134,13 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						ResourceID:            id,
 						ResourceName:          instanceName(inst),
 						Region:                s.region,
-						Message:               fmt.Sprintf("CPU %.1f%% over %d days", avgCPU, cfg.IdleDays),
+						Message:               idleMessage(avgCPU, avgMem, hasMem, cfg.IdleDays),
 						EstimatedMonthlyWaste: cost,
 						Metadata: map[string]any{
 							"instance_type":   instanceType,
 							"avg_cpu_percent": avgCPU,
+							"avg_mem_percent": avgMem,
+							"has_mem_metrics": hasMem,
 							"state":           "running",
 						},
 					})
@@ -171,6 +191,13 @@ func stoppedSince(inst ec2types.Instance) time.Time {
 		return *inst.LaunchTime
 	}
 	return time.Time{}
+}
+
+func idleMessage(avgCPU, avgMem float64, hasMem bool, idleDays int) string {
+	if hasMem {
+		return fmt.Sprintf("CPU %.1f%%, memory %.1f%% over %d days", avgCPU, avgMem, idleDays)
+	}
+	return fmt.Sprintf("CPU %.1f%% over %d days", avgCPU, idleDays)
 }
 
 func buildInstanceMap(instances []ec2types.Instance) map[string]ec2types.Instance {

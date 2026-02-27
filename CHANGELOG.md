@@ -5,6 +5,15 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-02-27
+
+### Fixed
+
+- EC2 idle detection now checks memory utilization (CWAgent) alongside CPU — instances with high memory usage are no longer falsely flagged as idle
+- Stopped EC2 instances report $0 estimated waste instead of full compute cost
+- Stopped EC2 severity downgraded from high to medium (no active compute spend)
+- SARIF default level for STOPPED_EC2 changed from error to warning
+
 ## [0.1.0] - 2026-02-25
 
 ### Added
@@ -23,4 +32,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.1.1]: https://github.com/ppiankov/awsspectre/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.1.0
