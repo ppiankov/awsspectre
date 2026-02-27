@@ -102,6 +102,27 @@ func TestMonthlySnapshotCost(t *testing.T) {
 	}
 }
 
+func TestRDSInstanceMemoryBytes_Known(t *testing.T) {
+	mem, ok := RDSInstanceMemoryBytes("db.r5.large")
+	if !ok {
+		t.Fatal("expected db.r5.large to be in memory map")
+	}
+	// 16 GiB = 17179869184 bytes
+	if mem != 16*1024*1024*1024 {
+		t.Fatalf("expected 16 GiB in bytes, got %d", mem)
+	}
+}
+
+func TestRDSInstanceMemoryBytes_Unknown(t *testing.T) {
+	mem, ok := RDSInstanceMemoryBytes("db.x99.unknown")
+	if ok {
+		t.Fatal("expected unknown class to return false")
+	}
+	if mem != 0 {
+		t.Fatalf("expected 0 bytes for unknown class, got %d", mem)
+	}
+}
+
 func TestPricingDataLoaded(t *testing.T) {
 	// Verify the embedded pricing data was parsed successfully
 	if pricingDB == nil {

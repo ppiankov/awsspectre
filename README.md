@@ -78,7 +78,7 @@ Requires valid AWS credentials (environment, profile, or IAM role).
 | ALB | `IDLE_ALB` | Zero healthy targets or zero requests | high |
 | NLB | `IDLE_NLB` | Zero healthy targets or zero active flows | high |
 | NAT Gateways | `IDLE_NAT_GATEWAY` | Zero bytes processed | high |
-| RDS instances | `IDLE_RDS` | CPU < 5% or zero connections | high |
+| RDS instances | `IDLE_RDS` | CPU < 5% or zero connections, memory < 50% (if known) | high |
 | Snapshots | `STALE_SNAPSHOT` | Older than stale threshold, no AMI reference | medium |
 | Security Groups | `UNUSED_SECURITY_GROUP` | No attached ENIs | low |
 
