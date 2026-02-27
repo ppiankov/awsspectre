@@ -13,6 +13,10 @@ import (
 // rdsIdleCPUThreshold is the CPU % below which an RDS instance is considered idle.
 const rdsIdleCPUThreshold = 5.0
 
+// rdsHighMemoryThreshold is the memory utilization % above which an RDS instance
+// is considered busy despite low CPU.
+const rdsHighMemoryThreshold = 50.0
+
 // RDSAPI is the minimal interface for RDS operations.
 type RDSAPI interface {
 	DescribeDBInstances(ctx context.Context, input *rds.DescribeDBInstancesInput, opts ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error)
@@ -81,6 +85,13 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		connMap = make(map[string]float64)
 	}
 
+	// Fetch FreeableMemory (bytes) for memory-aware idle detection
+	memMap, err := s.metrics.FetchAverage(ctx, "AWS/RDS", "FreeableMemory", "DBInstanceIdentifier", ids, cfg.IdleDays)
+	if err != nil {
+		slog.Warn("Failed to fetch RDS memory metrics", "region", s.region, "error", err)
+		memMap = make(map[string]float64)
+	}
+
 	for _, id := range ids {
 		avgCPU, hasCPU := cpuMap[id]
 		totalConns := connMap[id]
@@ -93,13 +104,28 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 
 		inst := instMap[id]
 		instanceClass := deref(inst.DBInstanceClass)
+
+		// Check if memory utilization is high enough to override the idle signal
+		var memPct float64
+		var hasMem bool
+		freeableBytes, hasFreeable := memMap[id]
+		if hasFreeable {
+			totalBytes, known := pricing.RDSInstanceMemoryBytes(instanceClass)
+			if known && totalBytes > 0 {
+				memPct = (1 - freeableBytes/float64(totalBytes)) * 100
+				hasMem = true
+				if memPct >= rdsHighMemoryThreshold {
+					slog.Debug("RDS instance has high memory usage — not idle",
+						"instance", id, "cpu", avgCPU, "memory_pct", memPct)
+					continue
+				}
+			}
+		}
+
 		multiAZ := inst.MultiAZ != nil && *inst.MultiAZ
 		cost := pricing.MonthlyRDSCost(instanceClass, s.region, multiAZ)
 
-		msg := fmt.Sprintf("CPU %.1f%% over %d days", avgCPU, cfg.IdleDays)
-		if totalConns == 0 {
-			msg = fmt.Sprintf("Zero connections over %d days, CPU %.1f%%", cfg.IdleDays, avgCPU)
-		}
+		msg := rdsIdleMessage(avgCPU, memPct, hasMem, totalConns, cfg.IdleDays)
 
 		result.Findings = append(result.Findings, Finding{
 			ID:                    FindingIdleRDS,
@@ -111,16 +137,30 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			Message:               msg,
 			EstimatedMonthlyWaste: cost,
 			Metadata: map[string]any{
-				"instance_class":    instanceClass,
-				"engine":            deref(inst.Engine),
-				"multi_az":          multiAZ,
-				"avg_cpu_percent":   avgCPU,
-				"total_connections": totalConns,
+				"instance_class":        instanceClass,
+				"engine":                deref(inst.Engine),
+				"multi_az":              multiAZ,
+				"avg_cpu_percent":       avgCPU,
+				"total_connections":     totalConns,
+				"avg_mem_percent":       memPct,
+				"freeable_memory_bytes": freeableBytes,
+				"has_mem_metrics":       hasMem,
 			},
 		})
 	}
 
 	return result, nil
+}
+
+func rdsIdleMessage(avgCPU, memPct float64, hasMem bool, totalConns float64, idleDays int) string {
+	memSuffix := ""
+	if hasMem {
+		memSuffix = fmt.Sprintf(", memory %.1f%%", memPct)
+	}
+	if totalConns == 0 {
+		return fmt.Sprintf("Zero connections over %d days, CPU %.1f%%%s", idleDays, avgCPU, memSuffix)
+	}
+	return fmt.Sprintf("CPU %.1f%%%s over %d days", avgCPU, memSuffix, idleDays)
 }
 
 func (s *RDSScanner) listDBInstances(ctx context.Context) ([]rdstypes.DBInstance, error) {

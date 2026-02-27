@@ -118,6 +118,32 @@ func MonthlyRDSCost(instanceClass, region string, multiAZ bool) float64 {
 	return cost
 }
 
+// rdsMemoryGiB maps RDS instance classes to total memory in GiB.
+var rdsMemoryGiB = map[string]int64{
+	"db.t3.micro":   1,
+	"db.t3.small":   2,
+	"db.t3.medium":  4,
+	"db.t3.large":   8,
+	"db.m5.large":   8,
+	"db.m5.xlarge":  16,
+	"db.m5.2xlarge": 32,
+	"db.r5.large":   16,
+	"db.r5.xlarge":  32,
+	"db.r5.2xlarge": 64,
+}
+
+const bytesPerGiB = 1024 * 1024 * 1024
+
+// RDSInstanceMemoryBytes returns the total memory in bytes for an RDS instance class.
+// Returns (0, false) if the instance class is not in the lookup table.
+func RDSInstanceMemoryBytes(instanceClass string) (int64, bool) {
+	gib, ok := rdsMemoryGiB[instanceClass]
+	if !ok {
+		return 0, false
+	}
+	return gib * bytesPerGiB, true
+}
+
 // MonthlySnapshotCost returns the estimated monthly cost for a snapshot.
 // Price is per GiB per month.
 func MonthlySnapshotCost(sizeGiB int, region string) float64 {
