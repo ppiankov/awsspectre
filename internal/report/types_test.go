@@ -149,9 +149,9 @@ func TestSpectreHubReporter_Generate(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	schema, ok := envelope["$schema"].(string)
-	if !ok || schema != "spectrehub/v1" {
-		t.Fatalf("expected $schema spectrehub/v1, got %v", envelope["$schema"])
+	schema, ok := envelope["schema"].(string)
+	if !ok || schema != "spectre/v1" {
+		t.Fatalf("expected schema spectre/v1, got %v", envelope["schema"])
 	}
 }
 

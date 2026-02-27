@@ -7,14 +7,14 @@ import (
 
 // spectreHubEnvelope wraps Data for SpectreHub ingestion.
 type spectreHubEnvelope struct {
-	Schema string `json:"$schema"`
+	Schema string `json:"schema"`
 	Data
 }
 
 // Generate writes SpectreHub envelope JSON output.
 func (r *SpectreHubReporter) Generate(data Data) error {
 	envelope := spectreHubEnvelope{
-		Schema: "spectrehub/v1",
+		Schema: "spectre/v1",
 		Data:   data,
 	}
 
