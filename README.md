@@ -236,8 +236,4 @@ MIT License -- see [LICENSE](LICENSE).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and pull requests welcome.
 
-Part of the Spectre family:
-[S3Spectre](https://github.com/ppiankov/s3spectre) |
-[VaultSpectre](https://github.com/ppiankov/vaultspectre) |
-[ClickSpectre](https://github.com/ppiankov/clickspectre) |
-[KafkaSpectre](https://github.com/ppiankov/kafkaspectre)
+Part of the [Spectre family](https://spectrehub.dev).
