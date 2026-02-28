@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"golang.org/x/sync/errgroup"
 )
@@ -136,6 +137,7 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 
 	elbClient := elasticloadbalancingv2.NewFromConfig(cfg)
 	rdsClient := rds.NewFromConfig(cfg)
+	lambdaClient := lambda.NewFromConfig(cfg)
 
 	return []ResourceScanner{
 		NewEC2Scanner(ec2Client, metrics, region),
@@ -146,5 +148,6 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 		NewELBScanner(elbClient, metrics, region),
 		NewNATGatewayScanner(ec2Client, metrics, region),
 		NewRDSScanner(rdsClient, metrics, region),
+		NewLambdaScanner(lambdaClient, metrics, region),
 	}
 }

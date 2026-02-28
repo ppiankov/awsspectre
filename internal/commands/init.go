@@ -130,6 +130,7 @@ const sampleIAMPolicy = `{
         "elasticloadbalancing:DescribeTargetHealth",
         "rds:DescribeDBInstances",
         "rds:DescribeDBSnapshots",
+        "lambda:ListFunctions",
         "cloudwatch:GetMetricData",
         "sts:GetCallerIdentity"
       ],

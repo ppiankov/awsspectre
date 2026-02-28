@@ -21,11 +21,11 @@ func TestNewMultiRegionScanner_CustomConcurrency(t *testing.T) {
 	}
 }
 
-func TestBuildScanners_Returns8Scanners(t *testing.T) {
+func TestBuildScanners_Returns9Scanners(t *testing.T) {
 	cfg := awssdk.Config{Region: "us-east-1"}
 	scanners := buildScanners(cfg, "us-east-1")
-	if len(scanners) != 8 {
-		t.Fatalf("expected 8 scanners, got %d", len(scanners))
+	if len(scanners) != 9 {
+		t.Fatalf("expected 9 scanners, got %d", len(scanners))
 	}
 
 	types := make(map[ResourceType]bool)
@@ -35,7 +35,7 @@ func TestBuildScanners_Returns8Scanners(t *testing.T) {
 
 	expected := []ResourceType{
 		ResourceEC2, ResourceEBS, ResourceEIP, ResourceSnapshot, ResourceSecurityGroup,
-		ResourceALB, ResourceNATGateway, ResourceRDS,
+		ResourceALB, ResourceNATGateway, ResourceRDS, ResourceLambda,
 	}
 	for _, rt := range expected {
 		if !types[rt] {

@@ -29,6 +29,7 @@ const (
 	ResourceRDS           ResourceType = "rds"
 	ResourceSnapshot      ResourceType = "snapshot"
 	ResourceSecurityGroup ResourceType = "security_group"
+	ResourceLambda        ResourceType = "lambda"
 )
 
 // FindingID identifies the type of waste detected.
@@ -46,6 +47,7 @@ const (
 	FindingIdleRDS              FindingID = "IDLE_RDS"
 	FindingStaleSnapshot        FindingID = "STALE_SNAPSHOT"
 	FindingUnusedSecurityGroup  FindingID = "UNUSED_SECURITY_GROUP"
+	FindingIdleLambda           FindingID = "IDLE_LAMBDA"
 )
 
 // Finding represents a single waste detection result.
