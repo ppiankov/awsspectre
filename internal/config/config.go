@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -28,6 +29,23 @@ type Config struct {
 type Exclude struct {
 	ResourceIDs []string `yaml:"resource_ids"`
 	Tags        []string `yaml:"tags"`
+}
+
+// ParseTags converts tag strings ("Key=Value" or "Key") into a map.
+// Key-only entries have an empty string value, meaning "match any value".
+func (e Exclude) ParseTags() map[string]string {
+	if len(e.Tags) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(e.Tags))
+	for _, s := range e.Tags {
+		if k, v, ok := strings.Cut(s, "="); ok {
+			m[k] = v
+		} else {
+			m[s] = ""
+		}
+	}
+	return m
 }
 
 // TimeoutDuration parses the timeout string as a duration.

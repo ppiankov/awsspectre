@@ -40,7 +40,7 @@ func (s *EIPScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 
 	for _, addr := range out.Addresses {
 		allocID := deref(addr.AllocationId)
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[allocID] {
+		if cfg.Exclude.ShouldExclude(allocID, ec2TagsToMap(addr.Tags)) {
 			continue
 		}
 

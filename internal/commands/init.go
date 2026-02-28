@@ -105,6 +105,7 @@ timeout: 10m
 #     - i-0abc123
 #   tags:
 #     - "Environment=production"
+#     - "awsspectre:ignore"
 `
 
 const sampleIAMPolicy = `{

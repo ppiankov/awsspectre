@@ -49,7 +49,7 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 	instMap := make(map[string]rdstypes.DBInstance, len(instances))
 	for _, inst := range instances {
 		id := deref(inst.DBInstanceIdentifier)
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[id] {
+		if cfg.Exclude.ShouldExclude(id, rdsTagsToMap(inst.TagList)) {
 			continue
 		}
 		// Only check instances that are "available" (running)

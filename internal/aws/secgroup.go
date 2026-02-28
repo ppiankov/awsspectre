@@ -52,7 +52,7 @@ func (s *SecurityGroupScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanR
 		sgID := deref(sg.GroupId)
 		sgName := deref(sg.GroupName)
 
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[sgID] {
+		if cfg.Exclude.ShouldExclude(sgID, ec2TagsToMap(sg.Tags)) {
 			continue
 		}
 

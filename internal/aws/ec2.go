@@ -50,7 +50,7 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 	now := time.Now().UTC()
 	var runningIDs []string
 	for _, inst := range instances {
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[deref(inst.InstanceId)] {
+		if cfg.Exclude.ShouldExclude(deref(inst.InstanceId), ec2TagsToMap(inst.Tags)) {
 			continue
 		}
 
