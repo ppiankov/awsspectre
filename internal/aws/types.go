@@ -35,16 +35,17 @@ const (
 type FindingID string
 
 const (
-	FindingIdleEC2             FindingID = "IDLE_EC2"
-	FindingStoppedEC2          FindingID = "STOPPED_EC2"
-	FindingDetachedEBS         FindingID = "DETACHED_EBS"
-	FindingUnusedEIP           FindingID = "UNUSED_EIP"
-	FindingIdleALB             FindingID = "IDLE_ALB"
-	FindingIdleNLB             FindingID = "IDLE_NLB"
-	FindingIdleNATGateway      FindingID = "IDLE_NAT_GATEWAY"
-	FindingIdleRDS             FindingID = "IDLE_RDS"
-	FindingStaleSnapshot       FindingID = "STALE_SNAPSHOT"
-	FindingUnusedSecurityGroup FindingID = "UNUSED_SECURITY_GROUP"
+	FindingIdleEC2              FindingID = "IDLE_EC2"
+	FindingStoppedEC2           FindingID = "STOPPED_EC2"
+	FindingDetachedEBS          FindingID = "DETACHED_EBS"
+	FindingUnusedEIP            FindingID = "UNUSED_EIP"
+	FindingIdleALB              FindingID = "IDLE_ALB"
+	FindingIdleNLB              FindingID = "IDLE_NLB"
+	FindingIdleNATGateway       FindingID = "IDLE_NAT_GATEWAY"
+	FindingLowTrafficNATGateway FindingID = "LOW_TRAFFIC_NAT_GATEWAY"
+	FindingIdleRDS              FindingID = "IDLE_RDS"
+	FindingStaleSnapshot        FindingID = "STALE_SNAPSHOT"
+	FindingUnusedSecurityGroup  FindingID = "UNUSED_SECURITY_GROUP"
 )
 
 // Finding represents a single waste detection result.
@@ -76,6 +77,7 @@ type ScanConfig struct {
 	IdleCPUThreshold     float64
 	HighMemoryThreshold  float64
 	StoppedThresholdDays int
+	NATGWLowTrafficGB    float64
 	Exclude              ExcludeConfig
 }
 

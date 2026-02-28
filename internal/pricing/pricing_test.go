@@ -65,6 +65,20 @@ func TestMonthlyNATGatewayCost(t *testing.T) {
 	}
 }
 
+func TestNATGatewayDataCostPerGB(t *testing.T) {
+	cost := NATGatewayDataCostPerGB("us-east-1")
+	if cost != 0.045 {
+		t.Fatalf("expected $0.045/GB, got $%f", cost)
+	}
+}
+
+func TestNATGatewayDataCostPerGB_UnknownRegion(t *testing.T) {
+	cost := NATGatewayDataCostPerGB("af-south-1")
+	if cost != 0.045 {
+		t.Fatalf("expected fallback to us-east-1 ($0.045), got $%f", cost)
+	}
+}
+
 func TestMonthlyALBCost(t *testing.T) {
 	cost := MonthlyALBCost("us-east-1")
 	if cost == 0 {

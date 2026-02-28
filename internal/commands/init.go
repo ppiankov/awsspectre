@@ -98,6 +98,7 @@ timeout: 10m
 # idle_cpu_threshold: 5.0
 # high_memory_threshold: 50.0
 # stopped_threshold_days: 30
+# nat_gw_low_traffic_gb: 1.0
 
 # Resources to exclude from scanning
 # exclude:
