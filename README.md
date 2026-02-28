@@ -72,7 +72,7 @@ Requires valid AWS credentials (environment, profile, or IAM role).
 | Resource | Finding | Signal | Severity |
 |----------|---------|--------|----------|
 | EC2 instances | `IDLE_EC2` | CPU < 5% and memory < 50% (if available) over idle window | high |
-| EC2 instances | `STOPPED_EC2` | Stopped > 30 days | medium |
+| EC2 instances | `STOPPED_EC2` | Stopped > 30 days (includes attached EBS cost) | medium |
 | EBS volumes | `DETACHED_EBS` | Detached (available state) | high |
 | Elastic IPs | `UNUSED_EIP` | Not associated with running instance | medium |
 | ALB | `IDLE_ALB` | Zero healthy targets or zero requests | high |
@@ -171,7 +171,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 
 **SARIF** (`--format sarif`): SARIF v2.1.0 for GitHub Security tab integration.
 
-**SpectreHub** (`--format spectrehub`): `spectrehub/v1` envelope for SpectreHub ingestion.
+**SpectreHub** (`--format spectrehub`): `spectre/v1` envelope for SpectreHub ingestion.
 
 ## Architecture
 

@@ -64,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CloudWatch batched `GetMetricData` API for efficient metric collection (up to 500 queries per call)
 - Embedded on-demand pricing data via `go:embed` for cost estimation
 - Analyzer with minimum cost filtering and summary aggregation
-- 4 output formats: text (terminal table), JSON (`spectre/v1` envelope), SARIF (v2.1.0), SpectreHub (`spectrehub/v1`)
+- 4 output formats: text (terminal table), JSON (`spectre/v1` envelope), SARIF (v2.1.0), SpectreHub (`spectre/v1`)
 - Configuration via `.awsspectre.yaml` with `awsspectre init` generator
 - IAM policy generator (`awsspectre init`) for minimal read-only permissions
 - Enhanced error messages with actionable hints for common AWS failures
