@@ -123,6 +123,31 @@ func TestLoad_YAMLPriority(t *testing.T) {
 	}
 }
 
+func TestLoad_ThresholdFields(t *testing.T) {
+	dir := t.TempDir()
+	content := `idle_cpu_threshold: 10.0
+high_memory_threshold: 75.0
+stopped_threshold_days: 14
+`
+	if err := os.WriteFile(filepath.Join(dir, ".awsspectre.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.IdleCPUThreshold != 10.0 {
+		t.Fatalf("expected idle_cpu_threshold 10.0, got %f", cfg.IdleCPUThreshold)
+	}
+	if cfg.HighMemoryThreshold != 75.0 {
+		t.Fatalf("expected high_memory_threshold 75.0, got %f", cfg.HighMemoryThreshold)
+	}
+	if cfg.StoppedThresholdDays != 14 {
+		t.Fatalf("expected stopped_threshold_days 14, got %d", cfg.StoppedThresholdDays)
+	}
+}
+
 func TestConfig_TimeoutDuration(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -97,6 +97,9 @@ awsspectre scan [flags]
 | `--idle-days` | `7` | Lookback window for utilization metrics |
 | `--stale-days` | `90` | Age threshold for snapshots |
 | `--min-monthly-cost` | `1.0` | Minimum monthly cost to report ($) |
+| `--idle-cpu-threshold` | `5.0` | CPU % below which a resource is idle |
+| `--high-memory-threshold` | `50.0` | Memory % above which a resource is not idle |
+| `--stopped-threshold-days` | `30` | Days stopped before flagging EC2 |
 | `--format` | `text` | Output format: `text`, `json`, `sarif`, `spectrehub` |
 | `-o, --output` | stdout | Output file path |
 | `--profile` | | AWS profile name |

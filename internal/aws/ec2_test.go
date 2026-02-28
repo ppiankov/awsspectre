@@ -96,7 +96,7 @@ func TestEC2Scanner_IdleInstance(t *testing.T) {
 	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-idle001": 2.3}, nil)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestEC2Scanner_HealthyInstance(t *testing.T) {
 	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-healthy001": 45.0}, nil)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestEC2Scanner_StoppedInstance(t *testing.T) {
 	metrics := newEC2MockMetricsFetcher(nil, nil)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestEC2Scanner_RecentlyStoppedNotFlagged(t *testing.T) {
 	metrics := newEC2MockMetricsFetcher(nil, nil)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestEC2Scanner_NoInstances(t *testing.T) {
 	metrics := newEC2MockMetricsFetcher(nil, nil)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,8 +262,11 @@ func TestEC2Scanner_ExcludedInstance(t *testing.T) {
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
 	cfg := ScanConfig{
-		IdleDays: 7,
-		Exclude:  ExcludeConfig{ResourceIDs: map[string]bool{"i-excluded001": true}},
+		IdleDays:             7,
+		IdleCPUThreshold:     5.0,
+		HighMemoryThreshold:  50.0,
+		StoppedThresholdDays: 30,
+		Exclude:              ExcludeConfig{ResourceIDs: map[string]bool{"i-excluded001": true}},
 	}
 	result, err := scanner.Scan(context.Background(), cfg)
 	if err != nil {
@@ -296,7 +299,7 @@ func TestEC2Scanner_LowCPUHighMemory_NotIdle(t *testing.T) {
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,7 +329,7 @@ func TestEC2Scanner_LowCPULowMemory_StillIdle(t *testing.T) {
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -367,7 +370,7 @@ func TestEC2Scanner_LowCPU_NoCWAgent_FallbackIdle(t *testing.T) {
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

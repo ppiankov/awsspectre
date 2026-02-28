@@ -94,6 +94,11 @@ format: text
 # Scan timeout
 timeout: 10m
 
+# Idle detection thresholds
+# idle_cpu_threshold: 5.0
+# high_memory_threshold: 50.0
+# stopped_threshold_days: 30
+
 # Resources to exclude from scanning
 # exclude:
 #   resource_ids:
