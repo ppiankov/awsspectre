@@ -80,28 +80,63 @@ func (s *NATGatewayScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 		totalIn := bytesIn[id]
 		totalBytes := totalOut + totalIn
 
-		if totalBytes > 0 {
+		gw := gwMap[id]
+		name := natGatewayName(gw)
+		baseMeta := map[string]any{
+			"subnet_id": deref(gw.SubnetId),
+			"vpc_id":    deref(gw.VpcId),
+			"state":     string(gw.State),
+		}
+
+		if totalBytes == 0 {
+			cost := pricing.MonthlyNATGatewayCost(s.region)
+			result.Findings = append(result.Findings, Finding{
+				ID:                    FindingIdleNATGateway,
+				Severity:              SeverityHigh,
+				ResourceType:          ResourceNATGateway,
+				ResourceID:            id,
+				ResourceName:          name,
+				Region:                s.region,
+				Message:               fmt.Sprintf("Zero bytes processed over %d days", cfg.IdleDays),
+				EstimatedMonthlyWaste: cost,
+				Metadata:              baseMeta,
+			})
 			continue
 		}
 
-		gw := gwMap[id]
-		cost := pricing.MonthlyNATGatewayCost(s.region)
+		// Low-traffic check: extrapolate to monthly and compare to threshold
+		monthlyBytes := totalBytes * (30.0 / float64(cfg.IdleDays))
+		monthlyGB := monthlyBytes / (1024 * 1024 * 1024)
 
-		result.Findings = append(result.Findings, Finding{
-			ID:                    FindingIdleNATGateway,
-			Severity:              SeverityHigh,
-			ResourceType:          ResourceNATGateway,
-			ResourceID:            id,
-			ResourceName:          natGatewayName(gw),
-			Region:                s.region,
-			Message:               fmt.Sprintf("Zero bytes processed over %d days", cfg.IdleDays),
-			EstimatedMonthlyWaste: cost,
-			Metadata: map[string]any{
-				"subnet_id": deref(gw.SubnetId),
-				"vpc_id":    deref(gw.VpcId),
-				"state":     string(gw.State),
-			},
-		})
+		if cfg.NATGWLowTrafficGB > 0 && monthlyGB < cfg.NATGWLowTrafficGB {
+			gatewayCost := pricing.MonthlyNATGatewayCost(s.region)
+			dataCost := monthlyGB * pricing.NATGatewayDataCostPerGB(s.region)
+			totalCost := gatewayCost + dataCost
+
+			meta := map[string]any{
+				"subnet_id":            deref(gw.SubnetId),
+				"vpc_id":               deref(gw.VpcId),
+				"state":                string(gw.State),
+				"bytes_in":             totalIn,
+				"bytes_out":            totalOut,
+				"total_bytes":          totalBytes,
+				"estimated_monthly_gb": monthlyGB,
+				"gateway_monthly_cost": gatewayCost,
+				"data_processing_cost": dataCost,
+			}
+
+			result.Findings = append(result.Findings, Finding{
+				ID:                    FindingLowTrafficNATGateway,
+				Severity:              SeverityMedium,
+				ResourceType:          ResourceNATGateway,
+				ResourceID:            id,
+				ResourceName:          name,
+				Region:                s.region,
+				Message:               fmt.Sprintf("NAT Gateway %q processed %.2f GB/month (est.) — $%.2f gateway + $%.2f data = $%.2f/month", name, monthlyGB, gatewayCost, dataCost, totalCost),
+				EstimatedMonthlyWaste: totalCost,
+				Metadata:              meta,
+			})
+		}
 	}
 
 	return result, nil

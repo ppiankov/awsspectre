@@ -32,6 +32,9 @@
   "nat_gateway": {
     "default": {"us-east-1": 32.85, "us-west-2": 32.85, "eu-west-1": 36.14, "ap-southeast-1": 36.14}
   },
+  "nat_gateway_data": {
+    "default": {"us-east-1": 0.045, "us-west-2": 0.045, "eu-west-1": 0.045, "ap-southeast-1": 0.045}
+  },
   "alb": {
     "default": {"us-east-1": 16.43, "us-west-2": 16.43, "eu-west-1": 18.07, "ap-southeast-1": 18.07}
   },

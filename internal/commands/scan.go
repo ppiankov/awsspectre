@@ -25,6 +25,7 @@ var scanFlags struct {
 	idleCPUThreshold     float64
 	highMemoryThreshold  float64
 	stoppedThresholdDays int
+	natGWLowTrafficGB    float64
 	excludeTags          []string
 	noProgress           bool
 	timeout              time.Duration
@@ -49,6 +50,7 @@ func init() {
 	scanCmd.Flags().Float64Var(&scanFlags.idleCPUThreshold, "idle-cpu-threshold", 0, "CPU % below which a resource is idle (default: 5)")
 	scanCmd.Flags().Float64Var(&scanFlags.highMemoryThreshold, "high-memory-threshold", 0, "Memory % above which a resource is not idle (default: 50)")
 	scanCmd.Flags().IntVar(&scanFlags.stoppedThresholdDays, "stopped-threshold-days", 0, "Days stopped before flagging EC2 (default: 30)")
+	scanCmd.Flags().Float64Var(&scanFlags.natGWLowTrafficGB, "nat-gw-low-traffic-gb", 0, "NAT Gateway monthly GB below which to flag as low traffic (default: 1)")
 	scanCmd.Flags().StringSliceVar(&scanFlags.excludeTags, "exclude-tags", nil, "Exclude resources by tag (Key=Value or Key, comma-separated)")
 	scanCmd.Flags().BoolVar(&scanFlags.noProgress, "no-progress", false, "Disable progress output")
 	scanCmd.Flags().DurationVar(&scanFlags.timeout, "timeout", 10*time.Minute, "Scan timeout")
@@ -97,6 +99,10 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	if scanFlags.stoppedThresholdDays > 0 {
 		stoppedDays = scanFlags.stoppedThresholdDays
 	}
+	natGWTraffic := 1.0
+	if scanFlags.natGWLowTrafficGB > 0 {
+		natGWTraffic = scanFlags.natGWLowTrafficGB
+	}
 
 	// Build exclusion rules from config file and CLI flags
 	excludeIDs := make(map[string]bool, len(cfg.Exclude.ResourceIDs))
@@ -122,6 +128,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		IdleCPUThreshold:     cpuThresh,
 		HighMemoryThreshold:  memThresh,
 		StoppedThresholdDays: stoppedDays,
+		NATGWLowTrafficGB:    natGWTraffic,
 		Exclude: aws.ExcludeConfig{
 			ResourceIDs: excludeIDs,
 			Tags:        excludeTags,
@@ -211,6 +218,9 @@ func applyConfigDefaults() {
 	}
 	if scanFlags.stoppedThresholdDays == 0 && cfg.StoppedThresholdDays > 0 {
 		scanFlags.stoppedThresholdDays = cfg.StoppedThresholdDays
+	}
+	if scanFlags.natGWLowTrafficGB == 0 && cfg.NATGWLowTrafficGB > 0 {
+		scanFlags.natGWLowTrafficGB = cfg.NATGWLowTrafficGB
 	}
 }
 

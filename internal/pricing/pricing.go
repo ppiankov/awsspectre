@@ -92,6 +92,12 @@ func MonthlyNATGatewayCost(region string) float64 {
 	return cost
 }
 
+// NATGatewayDataCostPerGB returns the per-GB data processing cost for a NAT Gateway.
+func NATGatewayDataCostPerGB(region string) float64 {
+	cost, _ := lookupMonthly("nat_gateway_data", region)
+	return cost
+}
+
 // MonthlyALBCost returns the base monthly cost of an ALB (excluding LCU charges).
 func MonthlyALBCost(region string) float64 {
 	cost, _ := lookupMonthly("alb", region)

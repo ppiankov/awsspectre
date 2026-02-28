@@ -148,6 +148,23 @@ stopped_threshold_days: 14
 	}
 }
 
+func TestLoad_NATGWLowTrafficField(t *testing.T) {
+	dir := t.TempDir()
+	content := `nat_gw_low_traffic_gb: 2.5
+`
+	if err := os.WriteFile(filepath.Join(dir, ".awsspectre.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.NATGWLowTrafficGB != 2.5 {
+		t.Fatalf("expected nat_gw_low_traffic_gb 2.5, got %f", cfg.NATGWLowTrafficGB)
+	}
+}
+
 func TestExclude_ParseTags(t *testing.T) {
 	tests := []struct {
 		name string

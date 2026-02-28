@@ -78,6 +78,7 @@ Requires valid AWS credentials (environment, profile, or IAM role).
 | ALB | `IDLE_ALB` | Zero healthy targets or zero requests | high |
 | NLB | `IDLE_NLB` | Zero healthy targets or zero active flows | high |
 | NAT Gateways | `IDLE_NAT_GATEWAY` | Zero bytes processed | high |
+| NAT Gateways | `LOW_TRAFFIC_NAT_GATEWAY` | Below traffic threshold (default 1 GB/month) | medium |
 | RDS instances | `IDLE_RDS` | CPU < 5% or zero connections, memory < 50% (if known) | high |
 | Snapshots | `STALE_SNAPSHOT` | Older than stale threshold, no AMI reference | medium |
 | Security Groups | `UNUSED_SECURITY_GROUP` | No attached ENIs | low |
@@ -100,6 +101,7 @@ awsspectre scan [flags]
 | `--idle-cpu-threshold` | `5.0` | CPU % below which a resource is idle |
 | `--high-memory-threshold` | `50.0` | Memory % above which a resource is not idle |
 | `--stopped-threshold-days` | `30` | Days stopped before flagging EC2 |
+| `--nat-gw-low-traffic-gb` | `1.0` | NAT Gateway monthly GB below which to flag as low traffic |
 | `--exclude-tags` | | Exclude resources by tag (`Key=Value` or `Key`, comma-separated) |
 | `--format` | `text` | Output format: `text`, `json`, `sarif`, `spectrehub` |
 | `-o, --output` | stdout | Output file path |
