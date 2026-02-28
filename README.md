@@ -11,7 +11,7 @@ Part of the [Spectre family](https://github.com/ppiankov) of infrastructure clea
 
 ## What it is
 
-AWSSpectre scans your AWS account for resources that are running but not doing useful work. It checks CloudWatch metrics, attachment status, and usage patterns to identify waste across EC2, RDS, EBS, ELB, NAT Gateways, Elastic IPs, snapshots, and security groups. Each finding includes an estimated monthly cost so you can prioritize cleanup by dollar impact.
+AWSSpectre scans your AWS account for resources that are running but not doing useful work. It checks CloudWatch metrics, attachment status, and usage patterns to identify waste across EC2, RDS, EBS, ELB, NAT Gateways, Elastic IPs, Lambda, snapshots, and security groups. Each finding includes an estimated monthly cost so you can prioritize cleanup by dollar impact.
 
 ## What it is NOT
 
@@ -82,6 +82,7 @@ Requires valid AWS credentials (environment, profile, or IAM role).
 | RDS instances | `IDLE_RDS` | CPU < 5% or zero connections, memory < 50% (if known) | high |
 | Snapshots | `STALE_SNAPSHOT` | Older than stale threshold, no AMI reference | medium |
 | Security Groups | `UNUSED_SECURITY_GROUP` | No attached ENIs | low |
+| Lambda | `IDLE_LAMBDA` | Zero invocations over idle window | low |
 
 ## Usage
 
@@ -146,6 +147,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `ec2:DescribeInstances`, `ec2:DescribeVolumes`, `ec2:DescribeAddresses`, `ec2:DescribeSnapshots`, `ec2:DescribeSecurityGroups`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeNatGateways`, `ec2:DescribeImages`, `ec2:DescribeRegions`
 - `elasticloadbalancing:DescribeLoadBalancers`, `elasticloadbalancing:DescribeTargetGroups`, `elasticloadbalancing:DescribeTargetHealth`
 - `rds:DescribeDBInstances`
+- `lambda:ListFunctions`
 - `cloudwatch:GetMetricData`
 
 ## Output formats
@@ -178,7 +180,7 @@ awsspectre/
 ├── cmd/awsspectre/main.go         # Entry point (22 lines, LDFLAGS)
 ├── internal/
 │   ├── commands/                  # Cobra CLI: scan, init, version
-│   ├── aws/                       # AWS SDK v2 clients + 8 resource scanners
+│   ├── aws/                       # AWS SDK v2 clients + 9 resource scanners
 │   │   ├── types.go               # Finding, Severity, ResourceType, ScanConfig
 │   │   ├── client.go              # AWS config loader, region discovery
 │   │   ├── cloudwatch.go          # Batched GetMetricData (up to 500 queries/call)
@@ -190,7 +192,8 @@ awsspectre/
 │   │   ├── natgw.go               # NAT Gateway: zero bytes processed
 │   │   ├── rds.go                 # RDS: idle CPU, no connections
 │   │   ├── snapshot.go            # Snapshots: old, no AMI reference
-│   │   └── secgroup.go            # Security groups: no attached ENIs
+│   │   ├── secgroup.go            # Security groups: no attached ENIs
+│   │   └── lambda.go              # Lambda: zero invocations
 │   ├── pricing/                   # Embedded on-demand pricing (go:embed)
 │   ├── analyzer/                  # Filter by min cost, compute summary
 │   └── report/                    # Text, JSON, SARIF, SpectreHub reporters
@@ -214,7 +217,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| 8 resource scanners (EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, snapshots, security groups) | Complete |
+| 9 resource scanners (EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, snapshots, security groups) | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |
