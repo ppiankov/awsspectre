@@ -14,15 +14,18 @@ import (
 )
 
 var scanFlags struct {
-	regions        []string
-	allRegions     bool
-	idleDays       int
-	staleDays      int
-	format         string
-	outputFile     string
-	minMonthlyCost float64
-	noProgress     bool
-	timeout        time.Duration
+	regions              []string
+	allRegions           bool
+	idleDays             int
+	staleDays            int
+	format               string
+	outputFile           string
+	minMonthlyCost       float64
+	idleCPUThreshold     float64
+	highMemoryThreshold  float64
+	stoppedThresholdDays int
+	noProgress           bool
+	timeout              time.Duration
 }
 
 var scanCmd = &cobra.Command{
@@ -41,6 +44,9 @@ func init() {
 	scanCmd.Flags().StringVar(&scanFlags.format, "format", "text", "Output format: text, json, sarif, spectrehub")
 	scanCmd.Flags().StringVarP(&scanFlags.outputFile, "output", "o", "", "Output file path (default: stdout)")
 	scanCmd.Flags().Float64Var(&scanFlags.minMonthlyCost, "min-monthly-cost", 1.0, "Minimum monthly cost to report ($)")
+	scanCmd.Flags().Float64Var(&scanFlags.idleCPUThreshold, "idle-cpu-threshold", 0, "CPU % below which a resource is idle (default: 5)")
+	scanCmd.Flags().Float64Var(&scanFlags.highMemoryThreshold, "high-memory-threshold", 0, "Memory % above which a resource is not idle (default: 50)")
+	scanCmd.Flags().IntVar(&scanFlags.stoppedThresholdDays, "stopped-threshold-days", 0, "Days stopped before flagging EC2 (default: 30)")
 	scanCmd.Flags().BoolVar(&scanFlags.noProgress, "no-progress", false, "Disable progress output")
 	scanCmd.Flags().DurationVar(&scanFlags.timeout, "timeout", 10*time.Minute, "Scan timeout")
 }
@@ -75,11 +81,27 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	}
 	slog.Info("Scanning regions", "count", len(regions), "regions", regions)
 
-	// Build scan config
+	// Build scan config with defaults for thresholds
+	cpuThresh := 5.0
+	if scanFlags.idleCPUThreshold > 0 {
+		cpuThresh = scanFlags.idleCPUThreshold
+	}
+	memThresh := 50.0
+	if scanFlags.highMemoryThreshold > 0 {
+		memThresh = scanFlags.highMemoryThreshold
+	}
+	stoppedDays := 30
+	if scanFlags.stoppedThresholdDays > 0 {
+		stoppedDays = scanFlags.stoppedThresholdDays
+	}
+
 	scanCfg := aws.ScanConfig{
-		IdleDays:       scanFlags.idleDays,
-		StaleDays:      scanFlags.staleDays,
-		MinMonthlyCost: scanFlags.minMonthlyCost,
+		IdleDays:             scanFlags.idleDays,
+		StaleDays:            scanFlags.staleDays,
+		MinMonthlyCost:       scanFlags.minMonthlyCost,
+		IdleCPUThreshold:     cpuThresh,
+		HighMemoryThreshold:  memThresh,
+		StoppedThresholdDays: stoppedDays,
 	}
 
 	// Run multi-region scan
@@ -156,6 +178,15 @@ func applyConfigDefaults() {
 	}
 	if scanFlags.minMonthlyCost == 1.0 && cfg.MinMonthlyCost > 0 {
 		scanFlags.minMonthlyCost = cfg.MinMonthlyCost
+	}
+	if scanFlags.idleCPUThreshold == 0 && cfg.IdleCPUThreshold > 0 {
+		scanFlags.idleCPUThreshold = cfg.IdleCPUThreshold
+	}
+	if scanFlags.highMemoryThreshold == 0 && cfg.HighMemoryThreshold > 0 {
+		scanFlags.highMemoryThreshold = cfg.HighMemoryThreshold
+	}
+	if scanFlags.stoppedThresholdDays == 0 && cfg.StoppedThresholdDays > 0 {
+		scanFlags.stoppedThresholdDays = cfg.StoppedThresholdDays
 	}
 }
 

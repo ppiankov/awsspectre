@@ -77,7 +77,7 @@ func TestRDSScanner_IdleCPU(t *testing.T) {
 	metrics := newRDSMockMetrics([]float64{2.0, 3.0, 1.0}, []float64{5.0, 10.0}, 3*1024*1024*1024)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestRDSScanner_ZeroConnections(t *testing.T) {
 	metrics := newRDSMockMetrics([]float64{25.0, 30.0}, []float64{0}, 12*1024*1024*1024)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestRDSScanner_HealthyInstance(t *testing.T) {
 	metrics := newRDSMockMetrics([]float64{45.0, 50.0}, []float64{20.0, 30.0}, 2*1024*1024*1024)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestRDSScanner_NotAvailableNotFlagged(t *testing.T) {
 	metrics := newMockMetricsFetcher(nil)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestRDSScanner_NoInstances(t *testing.T) {
 	metrics := newMockMetricsFetcher(nil)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -219,8 +219,10 @@ func TestRDSScanner_ExcludedInstance(t *testing.T) {
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
 	cfg := ScanConfig{
-		IdleDays: 7,
-		Exclude:  ExcludeConfig{ResourceIDs: map[string]bool{"excluded-db": true}},
+		IdleDays:            7,
+		IdleCPUThreshold:    5.0,
+		HighMemoryThreshold: 50.0,
+		Exclude:             ExcludeConfig{ResourceIDs: map[string]bool{"excluded-db": true}},
 	}
 	result, err := scanner.Scan(context.Background(), cfg)
 	if err != nil {
@@ -248,7 +250,7 @@ func TestRDSScanner_LowCPUHighMemory_NotIdle(t *testing.T) {
 	metrics := newRDSMockMetrics([]float64{2.0}, []float64{5.0}, 2*1024*1024*1024)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -274,7 +276,7 @@ func TestRDSScanner_LowCPULowMemory_StillIdle(t *testing.T) {
 	metrics := newRDSMockMetrics([]float64{1.5}, []float64{2.0}, 3.5*1024*1024*1024)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -309,7 +311,7 @@ func TestRDSScanner_UnknownClass_FallbackCPUOnly(t *testing.T) {
 	metrics := newRDSMockMetrics([]float64{1.0}, []float64{3.0}, 500*1024*1024)
 	scanner := NewRDSScanner(mock, metrics, "us-east-1")
 
-	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

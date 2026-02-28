@@ -12,16 +12,6 @@ import (
 	"github.com/ppiankov/awsspectre/internal/pricing"
 )
 
-// stoppedThresholdDays is the number of days a stopped instance must be stopped to be flagged.
-const stoppedThresholdDays = 30
-
-// idleCPUThreshold is the CPU utilization percentage below which an instance is considered idle.
-const idleCPUThreshold = 5.0
-
-// highMemoryThreshold is the memory utilization percentage above which an instance
-// is considered busy despite low CPU. Requires CloudWatch Agent.
-const highMemoryThreshold = 50.0
-
 // EC2API is the minimal interface for EC2 instance operations.
 type EC2API interface {
 	DescribeInstances(ctx context.Context, input *ec2.DescribeInstancesInput, opts ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
@@ -70,7 +60,7 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				continue
 			}
 			daysStopped := int(now.Sub(stoppedAt).Hours() / 24)
-			if daysStopped >= stoppedThresholdDays {
+			if daysStopped >= cfg.StoppedThresholdDays {
 				instanceType := string(inst.InstanceType)
 				result.Findings = append(result.Findings, Finding{
 					ID:                    FindingStoppedEC2,
@@ -115,10 +105,10 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				if !ok {
 					continue
 				}
-				if avgCPU < idleCPUThreshold {
+				if avgCPU < cfg.IdleCPUThreshold {
 					// Check if memory utilization is high enough to override the idle CPU signal
 					avgMem, hasMem := memMap[id]
-					if hasMem && avgMem >= highMemoryThreshold {
+					if hasMem && avgMem >= cfg.HighMemoryThreshold {
 						slog.Debug("Instance has low CPU but high memory — not idle",
 							"instance", id, "cpu", avgCPU, "memory", avgMem)
 						continue

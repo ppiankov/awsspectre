@@ -10,13 +10,6 @@ import (
 	"github.com/ppiankov/awsspectre/internal/pricing"
 )
 
-// rdsIdleCPUThreshold is the CPU % below which an RDS instance is considered idle.
-const rdsIdleCPUThreshold = 5.0
-
-// rdsHighMemoryThreshold is the memory utilization % above which an RDS instance
-// is considered busy despite low CPU.
-const rdsHighMemoryThreshold = 50.0
-
 // RDSAPI is the minimal interface for RDS operations.
 type RDSAPI interface {
 	DescribeDBInstances(ctx context.Context, input *rds.DescribeDBInstancesInput, opts ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error)
@@ -97,7 +90,7 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		totalConns := connMap[id]
 
 		// Flag if CPU is below threshold or zero connections
-		isIdle := (hasCPU && avgCPU < rdsIdleCPUThreshold) || totalConns == 0
+		isIdle := (hasCPU && avgCPU < cfg.IdleCPUThreshold) || totalConns == 0
 		if !isIdle {
 			continue
 		}
@@ -114,7 +107,7 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			if known && totalBytes > 0 {
 				memPct = (1 - freeableBytes/float64(totalBytes)) * 100
 				hasMem = true
-				if memPct >= rdsHighMemoryThreshold {
+				if memPct >= cfg.HighMemoryThreshold {
 					slog.Debug("RDS instance has high memory usage — not idle",
 						"instance", id, "cpu", avgCPU, "memory_pct", memPct)
 					continue

@@ -65,10 +65,13 @@ type ScanResult struct {
 
 // ScanConfig holds parameters that control scanning behavior.
 type ScanConfig struct {
-	IdleDays       int
-	StaleDays      int
-	MinMonthlyCost float64
-	Exclude        ExcludeConfig
+	IdleDays             int
+	StaleDays            int
+	MinMonthlyCost       float64
+	IdleCPUThreshold     float64
+	HighMemoryThreshold  float64
+	StoppedThresholdDays int
+	Exclude              ExcludeConfig
 }
 
 // ExcludeConfig holds resource exclusion rules.
