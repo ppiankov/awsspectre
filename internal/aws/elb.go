@@ -50,7 +50,7 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		lbARN := deref(lb.LoadBalancerArn)
 		lbName := deref(lb.LoadBalancerName)
 
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[lbARN] {
+		if cfg.Exclude.ShouldExclude(lbARN, nil) {
 			continue
 		}
 

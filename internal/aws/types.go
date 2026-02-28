@@ -1,6 +1,11 @@
 package aws
 
-import "time"
+import (
+	"time"
+
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+)
 
 // Severity levels for findings.
 type Severity string
@@ -78,6 +83,61 @@ type ScanConfig struct {
 type ExcludeConfig struct {
 	ResourceIDs map[string]bool
 	Tags        map[string]string
+}
+
+// ShouldExclude returns true if a resource should be skipped based on its ID or tags.
+// A nil tags map skips tag matching (used when tags are unavailable).
+func (e ExcludeConfig) ShouldExclude(resourceID string, tags map[string]string) bool {
+	if e.ResourceIDs[resourceID] {
+		return true
+	}
+	if tags == nil || len(e.Tags) == 0 {
+		return false
+	}
+	for k, v := range e.Tags {
+		tagVal, exists := tags[k]
+		if !exists {
+			continue
+		}
+		if v == "" || tagVal == v {
+			return true
+		}
+	}
+	return false
+}
+
+func ec2TagsToMap(tags []ec2types.Tag) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(tags))
+	for _, t := range tags {
+		if t.Key != nil {
+			v := ""
+			if t.Value != nil {
+				v = *t.Value
+			}
+			m[*t.Key] = v
+		}
+	}
+	return m
+}
+
+func rdsTagsToMap(tags []rdstypes.Tag) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(tags))
+	for _, t := range tags {
+		if t.Key != nil {
+			v := ""
+			if t.Value != nil {
+				v = *t.Value
+			}
+			m[*t.Key] = v
+		}
+	}
+	return m
 }
 
 // ScanProgress reports scanning progress to callers.

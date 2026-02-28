@@ -58,7 +58,7 @@ func (s *SnapshotScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 	now := time.Now().UTC()
 	for _, snap := range snapshots {
 		snapID := deref(snap.SnapshotId)
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[snapID] {
+		if cfg.Exclude.ShouldExclude(snapID, ec2TagsToMap(snap.Tags)) {
 			continue
 		}
 

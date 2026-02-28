@@ -47,7 +47,7 @@ func (s *EBSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 
 	for _, vol := range volumes {
 		volID := deref(vol.VolumeId)
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[volID] {
+		if cfg.Exclude.ShouldExclude(volID, ec2TagsToMap(vol.Tags)) {
 			continue
 		}
 

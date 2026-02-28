@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ppiankov/awsspectre/internal/analyzer"
@@ -24,6 +25,7 @@ var scanFlags struct {
 	idleCPUThreshold     float64
 	highMemoryThreshold  float64
 	stoppedThresholdDays int
+	excludeTags          []string
 	noProgress           bool
 	timeout              time.Duration
 }
@@ -47,6 +49,7 @@ func init() {
 	scanCmd.Flags().Float64Var(&scanFlags.idleCPUThreshold, "idle-cpu-threshold", 0, "CPU % below which a resource is idle (default: 5)")
 	scanCmd.Flags().Float64Var(&scanFlags.highMemoryThreshold, "high-memory-threshold", 0, "Memory % above which a resource is not idle (default: 50)")
 	scanCmd.Flags().IntVar(&scanFlags.stoppedThresholdDays, "stopped-threshold-days", 0, "Days stopped before flagging EC2 (default: 30)")
+	scanCmd.Flags().StringSliceVar(&scanFlags.excludeTags, "exclude-tags", nil, "Exclude resources by tag (Key=Value or Key, comma-separated)")
 	scanCmd.Flags().BoolVar(&scanFlags.noProgress, "no-progress", false, "Disable progress output")
 	scanCmd.Flags().DurationVar(&scanFlags.timeout, "timeout", 10*time.Minute, "Scan timeout")
 }
@@ -95,6 +98,23 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		stoppedDays = scanFlags.stoppedThresholdDays
 	}
 
+	// Build exclusion rules from config file and CLI flags
+	excludeIDs := make(map[string]bool, len(cfg.Exclude.ResourceIDs))
+	for _, id := range cfg.Exclude.ResourceIDs {
+		excludeIDs[id] = true
+	}
+	excludeTags := cfg.Exclude.ParseTags()
+	for _, s := range scanFlags.excludeTags {
+		if excludeTags == nil {
+			excludeTags = make(map[string]string)
+		}
+		if k, v, ok := strings.Cut(s, "="); ok {
+			excludeTags[k] = v
+		} else {
+			excludeTags[s] = ""
+		}
+	}
+
 	scanCfg := aws.ScanConfig{
 		IdleDays:             scanFlags.idleDays,
 		StaleDays:            scanFlags.staleDays,
@@ -102,6 +122,10 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		IdleCPUThreshold:     cpuThresh,
 		HighMemoryThreshold:  memThresh,
 		StoppedThresholdDays: stoppedDays,
+		Exclude: aws.ExcludeConfig{
+			ResourceIDs: excludeIDs,
+			Tags:        excludeTags,
+		},
 	}
 
 	// Run multi-region scan

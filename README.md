@@ -100,6 +100,7 @@ awsspectre scan [flags]
 | `--idle-cpu-threshold` | `5.0` | CPU % below which a resource is idle |
 | `--high-memory-threshold` | `50.0` | Memory % above which a resource is not idle |
 | `--stopped-threshold-days` | `30` | Days stopped before flagging EC2 |
+| `--exclude-tags` | | Exclude resources by tag (`Key=Value` or `Key`, comma-separated) |
 | `--format` | `text` | Output format: `text`, `json`, `sarif`, `spectrehub` |
 | `-o, --output` | stdout | Output file path |
 | `--profile` | | AWS profile name |
@@ -129,6 +130,9 @@ exclude:
   resource_ids:
     - i-0abc123def456
     - vol-0abc123def456
+  tags:
+    - "Environment=production"
+    - "awsspectre:ignore"
 ```
 
 Generate a sample config with `awsspectre init`.

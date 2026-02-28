@@ -50,7 +50,7 @@ func (s *NATGatewayScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 	gwMap := make(map[string]ec2types.NatGateway, len(gateways))
 	for _, gw := range gateways {
 		id := deref(gw.NatGatewayId)
-		if cfg.Exclude.ResourceIDs != nil && cfg.Exclude.ResourceIDs[id] {
+		if cfg.Exclude.ShouldExclude(id, ec2TagsToMap(gw.Tags)) {
 			continue
 		}
 		ids = append(ids, id)

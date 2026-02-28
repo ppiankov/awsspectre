@@ -277,6 +277,40 @@ func TestEC2Scanner_ExcludedInstance(t *testing.T) {
 	}
 }
 
+func TestEC2Scanner_ExcludedByTag(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-tagged001"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("Environment"), Value: awssdk.String("production")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-tagged001": 1.0}, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	cfg := ScanConfig{
+		IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30,
+		Exclude: ExcludeConfig{Tags: map[string]string{"Environment": "production"}},
+	}
+	result, err := scanner.Scan(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected tag-excluded instance to produce no findings, got %d", len(result.Findings))
+	}
+}
+
 func TestEC2Scanner_LowCPUHighMemory_NotIdle(t *testing.T) {
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{

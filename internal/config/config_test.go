@@ -148,6 +148,41 @@ stopped_threshold_days: 14
 	}
 }
 
+func TestExclude_ParseTags(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []string
+		want map[string]string
+	}{
+		{"empty", nil, nil},
+		{"key=value", []string{"Environment=production"}, map[string]string{"Environment": "production"}},
+		{"key-only", []string{"temporary"}, map[string]string{"temporary": ""}},
+		{"mixed", []string{"Env=prod", "awsspectre:ignore"}, map[string]string{"Env": "prod", "awsspectre:ignore": ""}},
+		{"empty-value", []string{"Key="}, map[string]string{"Key": ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := Exclude{Tags: tt.tags}
+			got := e.ParseTags()
+			if tt.want == nil {
+				if got != nil {
+					t.Fatalf("expected nil, got %v", got)
+				}
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("expected %d entries, got %d: %v", len(tt.want), len(got), got)
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Fatalf("key %q: expected %q, got %q", k, v, got[k])
+				}
+			}
+		})
+	}
+}
+
 func TestConfig_TimeoutDuration(t *testing.T) {
 	tests := []struct {
 		name    string
