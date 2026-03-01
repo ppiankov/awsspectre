@@ -131,6 +131,13 @@ const sampleIAMPolicy = `{
         "rds:DescribeDBInstances",
         "rds:DescribeDBSnapshots",
         "lambda:ListFunctions",
+        "kinesis:ListStreams",
+        "kinesis:DescribeStreamSummary",
+        "firehose:ListDeliveryStreams",
+        "sqs:ListQueues",
+        "sqs:GetQueueAttributes",
+        "sns:ListTopics",
+        "sns:ListSubscriptionsByTopic",
         "cloudwatch:GetMetricData",
         "sts:GetCallerIdentity"
       ],

@@ -150,6 +150,16 @@ func RDSInstanceMemoryBytes(instanceClass string) (int64, bool) {
 	return gib * bytesPerGiB, true
 }
 
+// MonthlyKinesisShardCost returns the estimated monthly cost for N Kinesis shards (provisioned mode).
+// $0.015/shard/hour in us-east-1 ≈ $10.95/shard/month.
+func MonthlyKinesisShardCost(shardCount int, region string) float64 {
+	hourly, ok := lookupMonthly("kinesis_shard", region)
+	if !ok {
+		return 0
+	}
+	return hourly * hoursPerMonth * float64(shardCount)
+}
+
 // MonthlySnapshotCost returns the estimated monthly cost for a snapshot.
 // Price is per GiB per month.
 func MonthlySnapshotCost(sizeGiB int, region string) float64 {
