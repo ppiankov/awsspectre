@@ -15,6 +15,7 @@ import (
 // EC2API is the minimal interface for EC2 instance operations.
 type EC2API interface {
 	DescribeInstances(ctx context.Context, input *ec2.DescribeInstancesInput, opts ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	DescribeVolumes(ctx context.Context, input *ec2.DescribeVolumesInput, opts ...func(*ec2.Options)) (*ec2.DescribeVolumesOutput, error)
 }
 
 // EC2Scanner detects idle and stopped EC2 instances.
@@ -49,6 +50,7 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 	// Check stopped instances
 	now := time.Now().UTC()
 	var runningIDs []string
+	stoppedVolumeIDs := map[string][]string{} // instanceID → []volumeID
 	for _, inst := range instances {
 		if cfg.Exclude.ShouldExclude(deref(inst.InstanceId), ec2TagsToMap(inst.Tags)) {
 			continue
@@ -61,12 +63,23 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			}
 			daysStopped := int(now.Sub(stoppedAt).Hours() / 24)
 			if daysStopped >= cfg.StoppedThresholdDays {
+				instID := deref(inst.InstanceId)
 				instanceType := string(inst.InstanceType)
+
+				// Collect attached volume IDs for EBS cost lookup
+				var volIDs []string
+				for _, bdm := range inst.BlockDeviceMappings {
+					if bdm.Ebs != nil && bdm.Ebs.VolumeId != nil {
+						volIDs = append(volIDs, *bdm.Ebs.VolumeId)
+					}
+				}
+				stoppedVolumeIDs[instID] = volIDs
+
 				result.Findings = append(result.Findings, Finding{
 					ID:                    FindingStoppedEC2,
 					Severity:              SeverityMedium,
 					ResourceType:          ResourceEC2,
-					ResourceID:            deref(inst.InstanceId),
+					ResourceID:            instID,
 					ResourceName:          instanceName(inst),
 					Region:                s.region,
 					Message:               fmt.Sprintf("Stopped for %d days", daysStopped),
@@ -85,6 +98,9 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			runningIDs = append(runningIDs, deref(inst.InstanceId))
 		}
 	}
+
+	// Enrich stopped findings with EBS volume costs
+	s.enrichStoppedWithEBSCost(ctx, result, stoppedVolumeIDs)
 
 	// Check CPU and memory utilization for running instances
 	if len(runningIDs) > 0 {
@@ -163,6 +179,83 @@ func (s *EC2Scanner) listInstances(ctx context.Context) ([]ec2types.Instance, er
 		}
 	}
 	return instances, nil
+}
+
+func (s *EC2Scanner) enrichStoppedWithEBSCost(ctx context.Context, result *ScanResult, stoppedVolumeIDs map[string][]string) {
+	// Collect all volume IDs across all stopped instances
+	var allVolIDs []string
+	for _, vids := range stoppedVolumeIDs {
+		allVolIDs = append(allVolIDs, vids...)
+	}
+	if len(allVolIDs) == 0 {
+		return
+	}
+
+	volDetails, err := s.describeVolumesByIDs(ctx, allVolIDs)
+	if err != nil {
+		slog.Warn("Failed to fetch EBS volumes for stopped instances", "region", s.region, "error", err)
+		return
+	}
+
+	for i, f := range result.Findings {
+		if f.ID != FindingStoppedEC2 {
+			continue
+		}
+		vids := stoppedVolumeIDs[f.ResourceID]
+		if len(vids) == 0 {
+			continue
+		}
+
+		var ebsCost float64
+		var volSummary []map[string]any
+		for _, vid := range vids {
+			v, ok := volDetails[vid]
+			if !ok {
+				continue
+			}
+			cost := pricing.MonthlyEBSCost(v.volumeType, v.sizeGiB, s.region)
+			ebsCost += cost
+			volSummary = append(volSummary, map[string]any{
+				"volume_id":    vid,
+				"volume_type":  v.volumeType,
+				"size_gib":     v.sizeGiB,
+				"monthly_cost": cost,
+			})
+		}
+
+		result.Findings[i].EstimatedMonthlyWaste = ebsCost
+		result.Findings[i].Metadata["ebs_monthly_cost"] = ebsCost
+		result.Findings[i].Metadata["attached_volumes"] = volSummary
+		if ebsCost > 0 {
+			daysStopped := result.Findings[i].Metadata["days_stopped"]
+			result.Findings[i].Message = fmt.Sprintf("Stopped for %v days, %d attached volumes ($%.2f/month EBS)", daysStopped, len(volSummary), ebsCost)
+		}
+	}
+}
+
+type ebsVolumeInfo struct {
+	volumeType string
+	sizeGiB    int
+}
+
+func (s *EC2Scanner) describeVolumesByIDs(ctx context.Context, volumeIDs []string) (map[string]ebsVolumeInfo, error) {
+	out, err := s.client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
+		VolumeIds: volumeIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]ebsVolumeInfo, len(out.Volumes))
+	for _, vol := range out.Volumes {
+		if vol.VolumeId != nil {
+			result[*vol.VolumeId] = ebsVolumeInfo{
+				volumeType: string(vol.VolumeType),
+				sizeGiB:    int(derefInt32(vol.Size)),
+			}
+		}
+	}
+	return result, nil
 }
 
 func instanceName(inst ec2types.Instance) string {

@@ -15,11 +15,18 @@ import (
 
 type mockEC2Client struct {
 	instances []ec2types.Reservation
+	volumes   []ec2types.Volume
 }
 
-func (m *mockEC2Client) DescribeInstances(_ context.Context, input *ec2.DescribeInstancesInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+func (m *mockEC2Client) DescribeInstances(_ context.Context, _ *ec2.DescribeInstancesInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
 	return &ec2.DescribeInstancesOutput{
 		Reservations: m.instances,
+	}, nil
+}
+
+func (m *mockEC2Client) DescribeVolumes(_ context.Context, _ *ec2.DescribeVolumesInput, _ ...func(*ec2.Options)) (*ec2.DescribeVolumesOutput, error) {
+	return &ec2.DescribeVolumesOutput{
+		Volumes: m.volumes,
 	}, nil
 }
 
@@ -165,9 +172,17 @@ func TestEC2Scanner_StoppedInstance(t *testing.T) {
 						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameStopped},
 						LaunchTime:   &launchTime,
 						Tags:         []ec2types.Tag{{Key: awssdk.String("Name"), Value: awssdk.String("old-server")}},
+						BlockDeviceMappings: []ec2types.InstanceBlockDeviceMapping{
+							{Ebs: &ec2types.EbsInstanceBlockDevice{VolumeId: awssdk.String("vol-root001")}},
+							{Ebs: &ec2types.EbsInstanceBlockDevice{VolumeId: awssdk.String("vol-data001")}},
+						},
 					},
 				},
 			},
+		},
+		volumes: []ec2types.Volume{
+			{VolumeId: awssdk.String("vol-root001"), VolumeType: ec2types.VolumeTypeGp3, Size: awssdk.Int32(100)},
+			{VolumeId: awssdk.String("vol-data001"), VolumeType: ec2types.VolumeTypeGp3, Size: awssdk.Int32(500)},
 		},
 	}
 
@@ -192,8 +207,49 @@ func TestEC2Scanner_StoppedInstance(t *testing.T) {
 	if f.Severity != SeverityMedium {
 		t.Fatalf("expected medium severity for stopped instance, got %s", f.Severity)
 	}
+	// 100 GiB gp3 ($8) + 500 GiB gp3 ($40) = $48/month
+	if f.EstimatedMonthlyWaste == 0 {
+		t.Fatal("expected non-zero EBS waste for stopped instance with volumes")
+	}
+	if f.Metadata["ebs_monthly_cost"] == nil {
+		t.Fatal("expected ebs_monthly_cost in metadata")
+	}
+	if f.Metadata["attached_volumes"] == nil {
+		t.Fatal("expected attached_volumes in metadata")
+	}
+}
+
+func TestEC2Scanner_StoppedInstanceNoVolumes(t *testing.T) {
+	launchTime := time.Now().UTC().Add(-45 * 24 * time.Hour)
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-novols001"),
+						InstanceType: ec2types.InstanceTypeT3Micro,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameStopped},
+						LaunchTime:   &launchTime,
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(nil, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
 	if f.EstimatedMonthlyWaste != 0 {
-		t.Fatalf("expected zero waste for stopped instance, got %f", f.EstimatedMonthlyWaste)
+		t.Fatalf("expected zero waste for stopped instance without volumes, got %f", f.EstimatedMonthlyWaste)
 	}
 }
 
