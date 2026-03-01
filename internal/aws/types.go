@@ -30,24 +30,36 @@ const (
 	ResourceSnapshot      ResourceType = "snapshot"
 	ResourceSecurityGroup ResourceType = "security_group"
 	ResourceLambda        ResourceType = "lambda"
+	ResourceKinesis       ResourceType = "kinesis"
+	ResourceFirehose      ResourceType = "firehose"
+	ResourceSQS           ResourceType = "sqs"
+	ResourceSNS           ResourceType = "sns"
 )
 
 // FindingID identifies the type of waste detected.
 type FindingID string
 
 const (
-	FindingIdleEC2              FindingID = "IDLE_EC2"
-	FindingStoppedEC2           FindingID = "STOPPED_EC2"
-	FindingDetachedEBS          FindingID = "DETACHED_EBS"
-	FindingUnusedEIP            FindingID = "UNUSED_EIP"
-	FindingIdleALB              FindingID = "IDLE_ALB"
-	FindingIdleNLB              FindingID = "IDLE_NLB"
-	FindingIdleNATGateway       FindingID = "IDLE_NAT_GATEWAY"
-	FindingLowTrafficNATGateway FindingID = "LOW_TRAFFIC_NAT_GATEWAY"
-	FindingIdleRDS              FindingID = "IDLE_RDS"
-	FindingStaleSnapshot        FindingID = "STALE_SNAPSHOT"
-	FindingUnusedSecurityGroup  FindingID = "UNUSED_SECURITY_GROUP"
-	FindingIdleLambda           FindingID = "IDLE_LAMBDA"
+	FindingIdleEC2                FindingID = "IDLE_EC2"
+	FindingStoppedEC2             FindingID = "STOPPED_EC2"
+	FindingDetachedEBS            FindingID = "DETACHED_EBS"
+	FindingUnusedEIP              FindingID = "UNUSED_EIP"
+	FindingIdleALB                FindingID = "IDLE_ALB"
+	FindingIdleNLB                FindingID = "IDLE_NLB"
+	FindingIdleNATGateway         FindingID = "IDLE_NAT_GATEWAY"
+	FindingLowTrafficNATGateway   FindingID = "LOW_TRAFFIC_NAT_GATEWAY"
+	FindingIdleRDS                FindingID = "IDLE_RDS"
+	FindingStaleSnapshot          FindingID = "STALE_SNAPSHOT"
+	FindingUnusedSecurityGroup    FindingID = "UNUSED_SECURITY_GROUP"
+	FindingIdleLambda             FindingID = "IDLE_LAMBDA"
+	FindingKinesisStreamIdle      FindingID = "KINESIS_STREAM_IDLE"
+	FindingKinesisOverProvisioned FindingID = "KINESIS_OVER_PROVISIONED"
+	FindingKinesisFirehoseIdle    FindingID = "KINESIS_FIREHOSE_IDLE"
+	FindingSQSIdle                FindingID = "SQS_IDLE"
+	FindingSQSDLQOrphaned         FindingID = "SQS_DLQ_ORPHANED"
+	FindingSQSNoConsumer          FindingID = "SQS_NO_CONSUMER"
+	FindingSNSNoSubscribers       FindingID = "SNS_NO_SUBSCRIBERS"
+	FindingSNSIdle                FindingID = "SNS_IDLE"
 )
 
 // Finding represents a single waste detection result.

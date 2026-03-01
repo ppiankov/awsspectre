@@ -11,7 +11,7 @@ Part of the [Spectre family](https://github.com/ppiankov) of infrastructure clea
 
 ## What it is
 
-AWSSpectre scans your AWS account for resources that are running but not doing useful work. It checks CloudWatch metrics, attachment status, and usage patterns to identify waste across EC2, RDS, EBS, ELB, NAT Gateways, Elastic IPs, Lambda, snapshots, and security groups. Each finding includes an estimated monthly cost so you can prioritize cleanup by dollar impact.
+AWSSpectre scans your AWS account for resources that are running but not doing useful work. It checks CloudWatch metrics, attachment status, and usage patterns to identify waste across EC2, RDS, EBS, ELB, NAT Gateways, Elastic IPs, Lambda, Kinesis, SQS, SNS, snapshots, and security groups. Each finding includes an estimated monthly cost so you can prioritize cleanup by dollar impact.
 
 ## What it is NOT
 
@@ -83,6 +83,14 @@ Requires valid AWS credentials (environment, profile, or IAM role).
 | Snapshots | `STALE_SNAPSHOT` | Older than stale threshold, no AMI reference | medium |
 | Security Groups | `UNUSED_SECURITY_GROUP` | No attached ENIs | low |
 | Lambda | `IDLE_LAMBDA` | Zero invocations over idle window | low |
+| Kinesis | `KINESIS_STREAM_IDLE` | Zero records in/out over idle window | high |
+| Kinesis | `KINESIS_OVER_PROVISIONED` | Shard utilization <10% sustained | medium |
+| Firehose | `KINESIS_FIREHOSE_IDLE` | Zero incoming records over idle window | medium |
+| SQS | `SQS_IDLE` | Zero messages sent and received over idle window | medium |
+| SQS | `SQS_DLQ_ORPHANED` | Dead-letter queue with no active source queue | high |
+| SQS | `SQS_NO_CONSUMER` | Messages sent but zero received over idle window | medium |
+| SNS | `SNS_NO_SUBSCRIBERS` | Topic with zero subscriptions | medium |
+| SNS | `SNS_IDLE` | Zero messages published over idle window | low |
 
 ## Usage
 
@@ -148,6 +156,10 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `elasticloadbalancing:DescribeLoadBalancers`, `elasticloadbalancing:DescribeTargetGroups`, `elasticloadbalancing:DescribeTargetHealth`
 - `rds:DescribeDBInstances`
 - `lambda:ListFunctions`
+- `kinesis:ListStreams`, `kinesis:DescribeStreamSummary`
+- `firehose:ListDeliveryStreams`
+- `sqs:ListQueues`, `sqs:GetQueueAttributes`
+- `sns:ListTopics`, `sns:ListSubscriptionsByTopic`
 - `cloudwatch:GetMetricData`
 
 ## Output formats
@@ -180,7 +192,7 @@ awsspectre/
 ├── cmd/awsspectre/main.go         # Entry point (22 lines, LDFLAGS)
 ├── internal/
 │   ├── commands/                  # Cobra CLI: scan, init, version
-│   ├── aws/                       # AWS SDK v2 clients + 9 resource scanners
+│   ├── aws/                       # AWS SDK v2 clients + 13 resource scanners
 │   │   ├── types.go               # Finding, Severity, ResourceType, ScanConfig
 │   │   ├── client.go              # AWS config loader, region discovery
 │   │   ├── cloudwatch.go          # Batched GetMetricData (up to 500 queries/call)
@@ -193,7 +205,10 @@ awsspectre/
 │   │   ├── rds.go                 # RDS: idle CPU, no connections
 │   │   ├── snapshot.go            # Snapshots: old, no AMI reference
 │   │   ├── secgroup.go            # Security groups: no attached ENIs
-│   │   └── lambda.go              # Lambda: zero invocations
+│   │   ├── lambda.go              # Lambda: zero invocations
+│   │   ├── kinesis.go             # Kinesis: idle streams, over-provisioned shards, idle Firehose
+│   │   ├── sqs.go                 # SQS: idle queues, no-consumer, orphaned DLQs
+│   │   └── sns.go                 # SNS: no subscribers, idle topics
 │   ├── pricing/                   # Embedded on-demand pricing (go:embed)
 │   ├── analyzer/                  # Filter by min cost, compute summary
 │   └── report/                    # Text, JSON, SARIF, SpectreHub reporters
@@ -217,7 +232,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| 9 resource scanners (EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, snapshots, security groups) | Complete |
+| 13 resource scanners (EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, snapshots, security groups) | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |

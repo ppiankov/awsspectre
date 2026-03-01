@@ -55,5 +55,8 @@
   },
   "snapshot": {
     "default": {"us-east-1": 0.05, "us-west-2": 0.05, "eu-west-1": 0.054, "ap-southeast-1": 0.054}
+  },
+  "kinesis_shard": {
+    "default": {"us-east-1": 0.015, "us-west-2": 0.015, "eu-west-1": 0.018, "ap-southeast-1": 0.018}
   }
 }
