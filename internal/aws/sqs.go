@@ -124,7 +124,7 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				Region:                s.region,
 				Message:               fmt.Sprintf("Zero messages sent and received over %d days", cfg.IdleDays),
 				EstimatedMonthlyWaste: 0,
-				Hygiene:               true,
+				Hygiene:               true, // WO-194: zero-waste SQS hygiene findings stay visible.
 			})
 			continue
 		}
@@ -140,7 +140,7 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				Region:                s.region,
 				Message:               fmt.Sprintf("%.0f messages sent but zero received over %d days", sentCount, cfg.IdleDays),
 				EstimatedMonthlyWaste: 0,
-				Hygiene:               true,
+				Hygiene:               true, // WO-194: zero-waste SQS hygiene findings stay visible.
 				Metadata: map[string]any{
 					"messages_sent": sentCount,
 				},
@@ -166,7 +166,7 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			Region:                s.region,
 			Message:               "Dead-letter queue with no active source queue",
 			EstimatedMonthlyWaste: 0,
-			Hygiene:               true,
+			Hygiene:               true, // WO-194: zero-waste SQS hygiene findings stay visible.
 		})
 	}
 

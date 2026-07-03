@@ -314,6 +314,65 @@ func TestSARIFReporter_DefaultHygieneRulesDeclared(t *testing.T) {
 	}
 }
 
+func TestSARIFReporter_CostBearingRulesDeclared(t *testing.T) {
+	data := sampleData()
+	// WO-201: remaining cost-bearing findings must have SARIF rule metadata.
+	costBearingRules := []struct {
+		id           awstype.FindingID
+		resourceType awstype.ResourceType
+	}{
+		{id: awstype.FindingLowTrafficNATGateway, resourceType: awstype.ResourceNATGateway},
+		{id: awstype.FindingKinesisOverProvisioned, resourceType: awstype.ResourceKinesis},
+	}
+	data.Findings = make([]awstype.Finding, 0, len(costBearingRules))
+	for _, rule := range costBearingRules {
+		ruleID := string(rule.id)
+		data.Findings = append(data.Findings, awstype.Finding{
+			ID:                    rule.id,
+			Severity:              awstype.SeverityMedium,
+			ResourceType:          rule.resourceType,
+			ResourceID:            ruleID,
+			ResourceName:          ruleID,
+			Region:                "us-east-1",
+			Message:               ruleID,
+			EstimatedMonthlyWaste: 12.34,
+		})
+	}
+
+	var buf bytes.Buffer
+	r := &SARIFReporter{Writer: &buf}
+	if err := r.Generate(data); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var sarif map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &sarif); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	runs, ok := sarif["runs"].([]any)
+	if !ok || len(runs) != 1 {
+		t.Fatal("expected 1 SARIF run")
+	}
+
+	run := runs[0].(map[string]any)
+	results, ok := run["results"].([]any)
+	if !ok || len(results) != len(data.Findings) {
+		t.Fatalf("expected %d SARIF results, got %d", len(data.Findings), len(results))
+	}
+
+	ruleLevels := sarifRuleLevelsByID(t, run)
+	for _, rule := range costBearingRules {
+		ruleID := string(rule.id)
+		if level, ok := ruleLevels[ruleID]; !ok || level != "warning" {
+			t.Fatalf("expected SARIF rule %s level warning, got %q (present=%t)", ruleID, level, ok)
+		}
+		if result := sarifResultByRuleID(t, results, ruleID); result["ruleId"] != ruleID {
+			t.Fatalf("expected SARIF result for %s, got %#v", ruleID, result["ruleId"])
+		}
+	}
+}
+
 func sarifResultByRuleID(t *testing.T, results []any, ruleID string) map[string]any {
 	t.Helper()
 

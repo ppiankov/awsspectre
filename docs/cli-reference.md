@@ -127,11 +127,12 @@ awsspectre/
 ├── cmd/awsspectre/main.go         # Entry point (22 lines, LDFLAGS)
 ├── internal/
 │   ├── commands/                  # Cobra CLI: scan, init, version
-│   ├── aws/                       # AWS SDK v2 clients + 13 resource scanners
+│   ├── aws/                       # AWS SDK v2 clients + global/regional resource scanners
 │   │   ├── types.go               # Finding, Severity, ResourceType, ScanConfig
 │   │   ├── client.go              # AWS config loader, region discovery
 │   │   ├── cloudwatch.go          # Batched GetMetricData (up to 500 queries/call)
 │   │   ├── scanner.go             # MultiRegionScanner orchestrator
+│   │   ├── cloudfront.go          # CloudFront: disabled distributions, zero requests
 │   │   ├── ec2.go                 # EC2: idle CPU, stopped instances
 │   │   ├── ebs.go                 # EBS: detached volumes
 │   │   ├── eip.go                 # EIP: unassociated addresses

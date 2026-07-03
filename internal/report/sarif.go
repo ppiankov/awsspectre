@@ -137,12 +137,15 @@ func buildSARIFRules() []sarifRule {
 		{ID: string(awstype.FindingIdleALB), ShortDescription: sarifMessage{Text: "Idle Application Load Balancer"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingIdleNLB), ShortDescription: sarifMessage{Text: "Idle Network Load Balancer"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingIdleNATGateway), ShortDescription: sarifMessage{Text: "Idle NAT Gateway"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
+		// WO-201: remaining cost-bearing findings need declared SARIF rules.
+		{ID: string(awstype.FindingLowTrafficNATGateway), ShortDescription: sarifMessage{Text: "Low-traffic NAT Gateway"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingIdleRDS), ShortDescription: sarifMessage{Text: "Idle RDS instance"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingStaleSnapshot), ShortDescription: sarifMessage{Text: "Stale EBS snapshot"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingUnusedSecurityGroup), ShortDescription: sarifMessage{Text: "Unused security group"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 		// WO-200: default-visible hygiene findings need declared SARIF rules.
 		{ID: string(awstype.FindingIdleLambda), ShortDescription: sarifMessage{Text: "Idle Lambda function"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingKinesisStreamIdle), ShortDescription: sarifMessage{Text: "Idle Kinesis stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		{ID: string(awstype.FindingKinesisOverProvisioned), ShortDescription: sarifMessage{Text: "Over-provisioned Kinesis stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingKinesisFirehoseIdle), ShortDescription: sarifMessage{Text: "Idle Kinesis Firehose delivery stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingSQSIdle), ShortDescription: sarifMessage{Text: "Idle SQS queue"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingSQSNoConsumer), ShortDescription: sarifMessage{Text: "SQS queue without consumers"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},

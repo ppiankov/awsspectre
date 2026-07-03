@@ -83,7 +83,7 @@ func (s *SNSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				Region:                s.region,
 				Message:               "Topic has zero subscriptions",
 				EstimatedMonthlyWaste: 0,
-				Hygiene:               true,
+				Hygiene:               true, // WO-194: zero-waste SNS hygiene findings stay visible.
 			})
 			continue
 		}
@@ -123,7 +123,7 @@ func (s *SNSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				Region:                s.region,
 				Message:               fmt.Sprintf("Zero messages published over %d days (%d subscribers)", cfg.IdleDays, subMap[name]),
 				EstimatedMonthlyWaste: 0,
-				Hygiene:               true,
+				Hygiene:               true, // WO-194: zero-waste SNS hygiene findings stay visible.
 				Metadata: map[string]any{
 					"subscriber_count": subMap[name],
 				},
