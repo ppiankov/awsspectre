@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -112,9 +113,12 @@ func TestCloudFrontScannerValidationAndListErrors(t *testing.T) {
 	}
 
 	wantErr := errors.New("list failed")
-	_, err = NewCloudFrontScanner(&fakeCloudFrontClient{err: wantErr}, nil).Scan(context.Background(), ScanConfig{})
+	result, err := NewCloudFrontScanner(&fakeCloudFrontClient{err: wantErr}, nil).Scan(context.Background(), ScanConfig{})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected list error %v, got %v", wantErr, err)
+	}
+	if result != nil {
+		t.Fatalf("expected no partial result on list error, got %#v", result)
 	}
 }
 
@@ -148,6 +152,41 @@ func TestCloudFrontScannerRequiresMetricsForEnabledDistributions(t *testing.T) {
 	_, err := NewCloudFrontScanner(cf, nil).Scan(context.Background(), ScanConfig{IdleDays: 30})
 	if err == nil {
 		t.Fatalf("expected nil metrics error")
+	}
+}
+
+func TestCloudFrontScannerPreservesDisabledFindingsWhenMetricsFail(t *testing.T) {
+	t.Parallel()
+
+	cf := &fakeCloudFrontClient{
+		pages: []*cloudfront.ListDistributionsOutput{
+			cloudFrontPage(false,
+				cloudFrontDistribution("disabled", false),
+				cloudFrontDistribution("enabled", true),
+			),
+		},
+	}
+	cw := &fakeCloudWatchClient{err: errors.New("cloudwatch throttled")}
+
+	scanner := NewCloudFrontScanner(cf, NewMetricsFetcher(cw))
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 30})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	findings := findingsByResourceID(result.Findings)
+	assertCloudFrontFinding(t, findings["disabled"], FindingCloudFrontDisabled, SeverityLow)
+	if _, ok := findings["enabled"]; ok {
+		t.Fatalf("enabled distribution should not emit idle finding when metrics fail")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected one metric error, got %#v", result.Errors)
+	}
+	if !strings.Contains(result.Errors[0], "cloudfront requests metric") {
+		t.Fatalf("expected CloudFront metric context, got %q", result.Errors[0])
+	}
+	if len(cw.inputs) != 1 {
+		t.Fatalf("expected one CloudWatch request, got %d", len(cw.inputs))
 	}
 }
 
@@ -335,10 +374,14 @@ func (f *fakeCloudFrontClient) ListDistributions(context.Context, *cloudfront.Li
 type fakeCloudWatchClient struct {
 	values map[string]float64
 	inputs []*cloudwatch.GetMetricDataInput
+	err    error
 }
 
 func (f *fakeCloudWatchClient) GetMetricData(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
 	f.inputs = append(f.inputs, input)
+	if f.err != nil {
+		return nil, f.err
+	}
 
 	results := make([]cwtypes.MetricDataResult, 0, len(input.MetricDataQueries))
 	for _, query := range input.MetricDataQueries {

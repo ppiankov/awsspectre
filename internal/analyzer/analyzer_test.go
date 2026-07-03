@@ -30,6 +30,43 @@ func TestAnalyze_FiltersByMinCost(t *testing.T) {
 	}
 }
 
+func TestAnalyze_IncludesZeroWasteCloudFrontFindings(t *testing.T) {
+	result := &awstype.ScanResult{
+		ResourcesScanned: 4,
+		RegionsScanned:   2,
+		Findings: []awstype.Finding{
+			{ID: awstype.FindingCloudFrontDisabled, Severity: awstype.SeverityLow, ResourceType: awstype.ResourceCloudFront, EstimatedMonthlyWaste: 0},
+			{ID: awstype.FindingCloudFrontIdle, Severity: awstype.SeverityMedium, ResourceType: awstype.ResourceCloudFront, EstimatedMonthlyWaste: 0},
+			{ID: awstype.FindingDetachedEBS, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEBS, EstimatedMonthlyWaste: 0.5},
+			{ID: awstype.FindingIdleEC2, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEC2, EstimatedMonthlyWaste: 50},
+		},
+	}
+
+	analysis := Analyze(result, AnalyzerConfig{MinMonthlyCost: 1.0})
+
+	if len(analysis.Findings) != 3 {
+		t.Fatalf("expected 3 findings after CloudFront exemption, got %d", len(analysis.Findings))
+	}
+	if analysis.Summary.TotalFindings != 3 {
+		t.Fatalf("expected summary total 3, got %d", analysis.Summary.TotalFindings)
+	}
+	if analysis.Summary.TotalMonthlyWaste != 50 {
+		t.Fatalf("expected waste 50.0, got %f", analysis.Summary.TotalMonthlyWaste)
+	}
+	if analysis.Summary.BySeverity["low"] != 1 {
+		t.Fatalf("expected 1 low severity, got %d", analysis.Summary.BySeverity["low"])
+	}
+	if analysis.Summary.BySeverity["medium"] != 1 {
+		t.Fatalf("expected 1 medium severity, got %d", analysis.Summary.BySeverity["medium"])
+	}
+	if analysis.Summary.ByResourceType["cloudfront"] != 2 {
+		t.Fatalf("expected 2 CloudFront findings, got %d", analysis.Summary.ByResourceType["cloudfront"])
+	}
+	if hasFindingID(analysis.Findings, awstype.FindingDetachedEBS) {
+		t.Fatalf("expected non-exempt low-cost EBS finding to remain filtered")
+	}
+}
+
 func TestAnalyze_SummaryAggregation(t *testing.T) {
 	result := &awstype.ScanResult{
 		ResourcesScanned: 100,
@@ -111,4 +148,13 @@ func TestAnalyze_ZeroMinCost(t *testing.T) {
 	if len(analysis.Findings) != 2 {
 		t.Fatalf("expected 2 findings with zero min cost, got %d", len(analysis.Findings))
 	}
+}
+
+func hasFindingID(findings []awstype.Finding, id awstype.FindingID) bool {
+	for _, finding := range findings {
+		if finding.ID == id {
+			return true
+		}
+	}
+	return false
 }

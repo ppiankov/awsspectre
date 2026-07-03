@@ -104,7 +104,9 @@ func (s *CloudFrontScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 		},
 	)
 	if err != nil {
-		return nil, err
+		// WO-191: preserve structural disabled-distribution findings when metrics fail.
+		result.Errors = append(result.Errors, fmt.Sprintf("cloudfront requests metric: %v", err))
+		return result, nil
 	}
 
 	for _, id := range enabledIDs {
