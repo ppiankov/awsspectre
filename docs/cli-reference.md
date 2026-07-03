@@ -92,6 +92,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `firehose:ListDeliveryStreams`
 - `sqs:ListQueues`, `sqs:GetQueueAttributes`
 - `sns:ListTopics`, `sns:ListSubscriptionsByTopic`
+- `cloudfront:ListDistributions`
 - `cloudwatch:GetMetricData`
 
 
@@ -190,4 +191,3 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **Security group references.** Only checks ENI attachment and in-rules cross-references. Does not trace through nested group chains.
 - **Snapshot AMI check.** Only validates against AMIs owned by the account. Shared AMIs referencing the snapshot will not be detected.
 - **Single metric thresholds.** CPU < 5% is a simple heuristic. Some workloads (batch, cron) may appear idle but are not.
-
