@@ -140,6 +140,7 @@ func buildSARIFRules() []sarifRule {
 		// WO-201: remaining cost-bearing findings need declared SARIF rules.
 		{ID: string(awstype.FindingLowTrafficNATGateway), ShortDescription: sarifMessage{Text: "Low-traffic NAT Gateway"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingKinesisOverProvisioned), ShortDescription: sarifMessage{Text: "Over-provisioned Kinesis stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		// WO-207: baseline rules below are outside the WO-201 cost-bearing block.
 		{ID: string(awstype.FindingIdleRDS), ShortDescription: sarifMessage{Text: "Idle RDS instance"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingStaleSnapshot), ShortDescription: sarifMessage{Text: "Stale EBS snapshot"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingUnusedSecurityGroup), ShortDescription: sarifMessage{Text: "Unused security group"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
