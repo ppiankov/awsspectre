@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
@@ -27,11 +28,14 @@ type ResourceScanner interface {
 
 // MultiRegionScanner orchestrates scanning across multiple AWS regions.
 type MultiRegionScanner struct {
-	client      *Client
-	regions     []string
-	concurrency int
-	scanConfig  ScanConfig
-	progressFn  func(ScanProgress)
+	client                 *Client
+	regions                []string
+	concurrency            int
+	scanConfig             ScanConfig
+	progressFn             func(ScanProgress)
+	configForRegion        func(string) awssdk.Config                    // WO-189: deterministic global-pass tests.
+	regionalScannerBuilder func(awssdk.Config, string) []ResourceScanner // WO-189: deterministic global-pass tests.
+	globalScannerBuilder   func(awssdk.Config) []ResourceScanner         // WO-189: deterministic global-pass tests.
 }
 
 // NewMultiRegionScanner creates a scanner that runs across the specified regions.
@@ -58,6 +62,17 @@ func (s *MultiRegionScanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 		mu       sync.Mutex
 		combined ScanResult
 	)
+
+	// WO-189: CloudFront is global, so scan it once outside the per-region loop.
+	globalResult, err := s.scanGlobal(ctx)
+	if err != nil {
+		combined.Errors = append(combined.Errors, fmt.Sprintf("%s: %v", cloudFrontFindingRegion, err))
+		slog.Warn("Global scan failed", "error", err)
+	} else {
+		combined.Findings = append(combined.Findings, globalResult.Findings...)
+		combined.Errors = append(combined.Errors, globalResult.Errors...)
+		combined.ResourcesScanned += globalResult.ResourcesScanned
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(s.concurrency)
@@ -92,10 +107,56 @@ func (s *MultiRegionScanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 	return &combined, nil
 }
 
+// scanGlobal runs scanners for AWS global services from their required control-plane region.
+func (s *MultiRegionScanner) scanGlobal(ctx context.Context) (*ScanResult, error) {
+	// WO-189: existing scanner tests construct MultiRegionScanner without an AWS client.
+	if s.client == nil && s.configForRegion == nil {
+		return &ScanResult{}, nil
+	}
+
+	cfg := s.awsConfigForRegion(cloudFrontControlPlaneRegion)
+	scanners := s.buildGlobalScanners(cfg)
+
+	var (
+		mu     sync.Mutex
+		result ScanResult
+	)
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(10) // max concurrent API calls for global services
+
+	for _, scanner := range scanners {
+		scanner := scanner
+		g.Go(func() error {
+			slog.Debug("Running global scanner", "type", scanner.Type())
+			sr, err := scanner.Scan(ctx, s.scanConfig)
+			if err != nil {
+				mu.Lock()
+				result.Errors = append(result.Errors, fmt.Sprintf("%s/%s: %v", cloudFrontFindingRegion, scanner.Type(), err))
+				mu.Unlock()
+				slog.Warn("Global scanner failed", "type", scanner.Type(), "error", err)
+				return nil
+			}
+
+			mu.Lock()
+			result.Findings = append(result.Findings, sr.Findings...)
+			result.ResourcesScanned += sr.ResourcesScanned
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // scanRegion runs all resource scanners for a single region.
 func (s *MultiRegionScanner) scanRegion(ctx context.Context, region string) (*ScanResult, error) {
-	cfg := s.client.ConfigForRegion(region)
-	scanners := buildScanners(cfg, region)
+	cfg := s.awsConfigForRegion(region)
+	scanners := s.buildRegionalScanners(cfg, region)
 
 	var (
 		mu     sync.Mutex
@@ -133,6 +194,27 @@ func (s *MultiRegionScanner) scanRegion(ctx context.Context, region string) (*Sc
 	return &result, nil
 }
 
+func (s *MultiRegionScanner) awsConfigForRegion(region string) awssdk.Config {
+	if s.configForRegion != nil {
+		return s.configForRegion(region)
+	}
+	return s.client.ConfigForRegion(region)
+}
+
+func (s *MultiRegionScanner) buildRegionalScanners(cfg awssdk.Config, region string) []ResourceScanner {
+	if s.regionalScannerBuilder != nil {
+		return s.regionalScannerBuilder(cfg, region)
+	}
+	return buildScanners(cfg, region)
+}
+
+func (s *MultiRegionScanner) buildGlobalScanners(cfg awssdk.Config) []ResourceScanner {
+	if s.globalScannerBuilder != nil {
+		return s.globalScannerBuilder(cfg)
+	}
+	return buildGlobalScanners(cfg)
+}
+
 // buildScanners creates all resource scanners for a given region.
 func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 	ec2Client := ec2.NewFromConfig(cfg)
@@ -161,5 +243,15 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 		NewFirehoseScanner(firehoseClient, metrics, region),
 		NewSQSScanner(sqsClient, metrics, region),
 		NewSNSScanner(snsClient, metrics, region),
+	}
+}
+
+func buildGlobalScanners(cfg awssdk.Config) []ResourceScanner {
+	cloudFrontClient := cloudfront.NewFromConfig(cfg)
+	cloudWatchClient := cloudwatch.NewFromConfig(cfg)
+	metrics := NewMetricsFetcher(cloudWatchClient)
+
+	return []ResourceScanner{
+		NewCloudFrontScanner(cloudFrontClient, metrics),
 	}
 }
