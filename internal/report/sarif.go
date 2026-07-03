@@ -140,5 +140,8 @@ func buildSARIFRules() []sarifRule {
 		{ID: string(awstype.FindingIdleRDS), ShortDescription: sarifMessage{Text: "Idle RDS instance"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingStaleSnapshot), ShortDescription: sarifMessage{Text: "Stale EBS snapshot"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingUnusedSecurityGroup), ShortDescription: sarifMessage{Text: "Unused security group"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
+		// WO-198: CloudFront findings need declared rules for SARIF code-scanning consumers.
+		{ID: string(awstype.FindingCloudFrontDisabled), ShortDescription: sarifMessage{Text: "Disabled CloudFront distribution"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
+		{ID: string(awstype.FindingCloudFrontIdle), ShortDescription: sarifMessage{Text: "Idle CloudFront distribution"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 	}
 }

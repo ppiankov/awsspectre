@@ -158,8 +158,34 @@ func TestSpectreHubReporter_Generate(t *testing.T) {
 func TestSARIFReporter_Generate(t *testing.T) {
 	var buf bytes.Buffer
 	r := &SARIFReporter{Writer: &buf}
+	data := sampleData()
+	// WO-198: CloudFront result rule IDs must be declared in SARIF rule metadata.
+	data.Findings = append(data.Findings,
+		awstype.Finding{
+			ID:                    awstype.FindingCloudFrontDisabled,
+			Severity:              awstype.SeverityLow,
+			ResourceType:          awstype.ResourceCloudFront,
+			ResourceID:            "E123DISABLED",
+			ResourceName:          "arn:aws:cloudfront::123456789012:distribution/E123DISABLED",
+			Region:                "global",
+			Message:               "CloudFront distribution is disabled but still exists",
+			EstimatedMonthlyWaste: 0,
+			Hygiene:               true,
+		},
+		awstype.Finding{
+			ID:                    awstype.FindingCloudFrontIdle,
+			Severity:              awstype.SeverityMedium,
+			ResourceType:          awstype.ResourceCloudFront,
+			ResourceID:            "E123IDLE",
+			ResourceName:          "arn:aws:cloudfront::123456789012:distribution/E123IDLE",
+			Region:                "global",
+			Message:               "CloudFront distribution had zero requests over the last 7 days",
+			EstimatedMonthlyWaste: 0,
+			Hygiene:               true,
+		},
+	)
 
-	if err := r.Generate(sampleData()); err != nil {
+	if err := r.Generate(data); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -179,15 +205,74 @@ func TestSARIFReporter_Generate(t *testing.T) {
 
 	run := runs[0].(map[string]any)
 	results, ok := run["results"].([]any)
-	if !ok || len(results) != 1 {
-		t.Fatal("expected 1 SARIF result")
+	if !ok || len(results) != 3 {
+		t.Fatal("expected 3 SARIF results")
 	}
 
-	result := results[0].(map[string]any)
+	result := sarifResultByRuleID(t, results, string(awstype.FindingIdleEC2))
 	if result["ruleId"] != "IDLE_EC2" {
 		t.Fatalf("expected ruleId IDLE_EC2, got %v", result["ruleId"])
 	}
 	if result["level"] != "error" {
 		t.Fatalf("expected level error, got %v", result["level"])
 	}
+
+	ruleLevels := sarifRuleLevelsByID(t, run)
+	wantRuleLevels := map[string]string{
+		string(awstype.FindingIdleEC2):            "error",
+		string(awstype.FindingCloudFrontDisabled): "note",
+		string(awstype.FindingCloudFrontIdle):     "warning",
+	}
+	for id, wantLevel := range wantRuleLevels {
+		if gotLevel, ok := ruleLevels[id]; !ok || gotLevel != wantLevel {
+			t.Fatalf("expected SARIF rule %s level %s, got %q (present=%t)", id, wantLevel, gotLevel, ok)
+		}
+	}
+	for _, raw := range results {
+		result := raw.(map[string]any)
+		ruleID, ok := result["ruleId"].(string)
+		if !ok || ruleID == "" {
+			t.Fatalf("expected result ruleId, got %#v", result["ruleId"])
+		}
+		if _, ok := ruleLevels[ruleID]; !ok {
+			t.Fatalf("SARIF result references undeclared ruleId %s", ruleID)
+		}
+	}
+
+	cloudFrontResult := sarifResultByRuleID(t, results, string(awstype.FindingCloudFrontIdle))
+	locations := cloudFrontResult["locations"].([]any)
+	location := locations[0].(map[string]any)
+	physicalLocation := location["physicalLocation"].(map[string]any)
+	artifactLocation := physicalLocation["artifactLocation"].(map[string]any)
+	if artifactLocation["uri"] != "aws://global/cloudfront/E123IDLE" {
+		t.Fatalf("expected CloudFront SARIF location URI, got %v", artifactLocation["uri"])
+	}
+}
+
+func sarifResultByRuleID(t *testing.T, results []any, ruleID string) map[string]any {
+	t.Helper()
+
+	for _, raw := range results {
+		result := raw.(map[string]any)
+		if result["ruleId"] == ruleID {
+			return result
+		}
+	}
+	t.Fatalf("SARIF result for ruleId %s not found", ruleID)
+	return nil
+}
+
+func sarifRuleLevelsByID(t *testing.T, run map[string]any) map[string]string {
+	t.Helper()
+
+	tool := run["tool"].(map[string]any)
+	driver := tool["driver"].(map[string]any)
+	rules := driver["rules"].([]any)
+	levels := make(map[string]string, len(rules))
+	for _, raw := range rules {
+		rule := raw.(map[string]any)
+		defaultConfig := rule["defaultConfiguration"].(map[string]any)
+		levels[rule["id"].(string)] = defaultConfig["level"].(string)
+	}
+	return levels
 }
