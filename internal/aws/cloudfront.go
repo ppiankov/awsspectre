@@ -158,7 +158,7 @@ func cloudFrontFinding(id FindingID, severity Severity, distribution cftypes.Dis
 		Region:                cloudFrontFindingRegion,
 		Message:               message,
 		EstimatedMonthlyWaste: 0,
-		Hygiene:               true,
+		Hygiene:               true, // WO-194: zero-waste CloudFront hygiene findings stay visible.
 		Metadata:              cloudFrontMetadata(distribution),
 	}
 }
