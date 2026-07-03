@@ -139,19 +139,20 @@ func buildSARIFRules() []sarifRule {
 		{ID: string(awstype.FindingIdleNATGateway), ShortDescription: sarifMessage{Text: "Idle NAT Gateway"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		// WO-201: remaining cost-bearing findings need declared SARIF rules.
 		{ID: string(awstype.FindingLowTrafficNATGateway), ShortDescription: sarifMessage{Text: "Low-traffic NAT Gateway"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		{ID: string(awstype.FindingKinesisOverProvisioned), ShortDescription: sarifMessage{Text: "Over-provisioned Kinesis stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingIdleRDS), ShortDescription: sarifMessage{Text: "Idle RDS instance"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingStaleSnapshot), ShortDescription: sarifMessage{Text: "Stale EBS snapshot"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingUnusedSecurityGroup), ShortDescription: sarifMessage{Text: "Unused security group"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 		// WO-200: default-visible hygiene findings need declared SARIF rules.
-		{ID: string(awstype.FindingIdleLambda), ShortDescription: sarifMessage{Text: "Idle Lambda function"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
-		{ID: string(awstype.FindingKinesisStreamIdle), ShortDescription: sarifMessage{Text: "Idle Kinesis stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
-		{ID: string(awstype.FindingKinesisOverProvisioned), ShortDescription: sarifMessage{Text: "Over-provisioned Kinesis stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		// WO-204: default levels must match scanner-emitted severities.
+		{ID: string(awstype.FindingIdleLambda), ShortDescription: sarifMessage{Text: "Idle Lambda function"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
+		{ID: string(awstype.FindingKinesisStreamIdle), ShortDescription: sarifMessage{Text: "Idle Kinesis stream"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingKinesisFirehoseIdle), ShortDescription: sarifMessage{Text: "Idle Kinesis Firehose delivery stream"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingSQSIdle), ShortDescription: sarifMessage{Text: "Idle SQS queue"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		{ID: string(awstype.FindingSQSNoConsumer), ShortDescription: sarifMessage{Text: "SQS queue without consumers"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
-		{ID: string(awstype.FindingSQSDLQOrphaned), ShortDescription: sarifMessage{Text: "Orphaned SQS dead-letter queue"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		{ID: string(awstype.FindingSQSDLQOrphaned), ShortDescription: sarifMessage{Text: "Orphaned SQS dead-letter queue"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},
 		{ID: string(awstype.FindingSNSNoSubscribers), ShortDescription: sarifMessage{Text: "SNS topic without subscribers"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
-		{ID: string(awstype.FindingSNSIdle), ShortDescription: sarifMessage{Text: "Idle SNS topic"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		{ID: string(awstype.FindingSNSIdle), ShortDescription: sarifMessage{Text: "Idle SNS topic"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 		// WO-198: CloudFront findings need declared rules for SARIF code-scanning consumers.
 		{ID: string(awstype.FindingCloudFrontDisabled), ShortDescription: sarifMessage{Text: "Disabled CloudFront distribution"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 		{ID: string(awstype.FindingCloudFrontIdle), ShortDescription: sarifMessage{Text: "Idle CloudFront distribution"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},

@@ -252,25 +252,28 @@ func TestSARIFReporter_Generate(t *testing.T) {
 func TestSARIFReporter_DefaultHygieneRulesDeclared(t *testing.T) {
 	data := sampleData()
 	// WO-200: default-visible hygiene findings must have SARIF rule metadata.
+	// WO-204: rule defaults must match scanner-emitted severities.
 	defaultHygieneRules := []struct {
-		id           awstype.FindingID
-		resourceType awstype.ResourceType
+		id            awstype.FindingID
+		severity      awstype.Severity
+		resourceType  awstype.ResourceType
+		expectedLevel string
 	}{
-		{id: awstype.FindingIdleLambda, resourceType: "lambda"},
-		{id: awstype.FindingKinesisStreamIdle, resourceType: "kinesis"},
-		{id: awstype.FindingKinesisFirehoseIdle, resourceType: "firehose"},
-		{id: awstype.FindingSQSIdle, resourceType: "sqs"},
-		{id: awstype.FindingSQSNoConsumer, resourceType: "sqs"},
-		{id: awstype.FindingSQSDLQOrphaned, resourceType: "sqs"},
-		{id: awstype.FindingSNSNoSubscribers, resourceType: "sns"},
-		{id: awstype.FindingSNSIdle, resourceType: "sns"},
+		{id: awstype.FindingIdleLambda, severity: awstype.SeverityLow, resourceType: "lambda", expectedLevel: "note"},
+		{id: awstype.FindingKinesisStreamIdle, severity: awstype.SeverityHigh, resourceType: "kinesis", expectedLevel: "error"},
+		{id: awstype.FindingKinesisFirehoseIdle, severity: awstype.SeverityMedium, resourceType: "firehose", expectedLevel: "warning"},
+		{id: awstype.FindingSQSIdle, severity: awstype.SeverityMedium, resourceType: "sqs", expectedLevel: "warning"},
+		{id: awstype.FindingSQSNoConsumer, severity: awstype.SeverityMedium, resourceType: "sqs", expectedLevel: "warning"},
+		{id: awstype.FindingSQSDLQOrphaned, severity: awstype.SeverityHigh, resourceType: "sqs", expectedLevel: "error"},
+		{id: awstype.FindingSNSNoSubscribers, severity: awstype.SeverityMedium, resourceType: "sns", expectedLevel: "warning"},
+		{id: awstype.FindingSNSIdle, severity: awstype.SeverityLow, resourceType: "sns", expectedLevel: "note"},
 	}
 	data.Findings = make([]awstype.Finding, 0, len(defaultHygieneRules))
 	for _, rule := range defaultHygieneRules {
 		ruleID := string(rule.id)
 		data.Findings = append(data.Findings, awstype.Finding{
 			ID:           rule.id,
-			Severity:     awstype.SeverityMedium,
+			Severity:     rule.severity,
 			ResourceType: rule.resourceType,
 			ResourceID:   ruleID,
 			ResourceName: ruleID,
@@ -305,11 +308,15 @@ func TestSARIFReporter_DefaultHygieneRulesDeclared(t *testing.T) {
 	ruleLevels := sarifRuleLevelsByID(t, run)
 	for _, rule := range defaultHygieneRules {
 		ruleID := string(rule.id)
-		if _, ok := ruleLevels[ruleID]; !ok {
-			t.Fatalf("expected declared SARIF rule for %s", ruleID)
+		if level, ok := ruleLevels[ruleID]; !ok || level != rule.expectedLevel {
+			t.Fatalf("expected SARIF rule %s level %s, got %q (present=%t)", ruleID, rule.expectedLevel, level, ok)
 		}
-		if result := sarifResultByRuleID(t, results, ruleID); result["ruleId"] != ruleID {
+		result := sarifResultByRuleID(t, results, ruleID)
+		if result["ruleId"] != ruleID {
 			t.Fatalf("expected SARIF result for %s, got %#v", ruleID, result["ruleId"])
+		}
+		if result["level"] != rule.expectedLevel {
+			t.Fatalf("expected SARIF result %s level %s, got %#v", ruleID, rule.expectedLevel, result["level"])
 		}
 	}
 }
