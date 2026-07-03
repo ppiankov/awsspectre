@@ -114,6 +114,9 @@ func TestKinesisScanner_IdleStream(t *testing.T) {
 	if f.EstimatedMonthlyWaste <= 0 {
 		t.Fatalf("expected non-zero waste for provisioned idle stream, got %f", f.EstimatedMonthlyWaste)
 	}
+	if f.Hygiene {
+		t.Fatalf("provisioned idle stream should remain cost-bearing, not hygiene")
+	}
 	if f.Metadata["shard_count"] != int32(4) {
 		t.Fatalf("expected 4 shards, got %v", f.Metadata["shard_count"])
 	}
@@ -207,6 +210,9 @@ func TestKinesisScanner_OnDemandIdle(t *testing.T) {
 	}
 	if f.EstimatedMonthlyWaste != 0 {
 		t.Fatalf("expected $0 waste for on-demand idle stream, got %f", f.EstimatedMonthlyWaste)
+	}
+	if !f.Hygiene {
+		t.Fatalf("expected on-demand idle stream to be marked hygiene")
 	}
 }
 

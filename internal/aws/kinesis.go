@@ -115,6 +115,7 @@ func (s *KinesisScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult,
 				Region:                s.region,
 				Message:               fmt.Sprintf("Zero records in/out over %d days (%d shards, %s mode)", cfg.IdleDays, info.shardCount, info.mode),
 				EstimatedMonthlyWaste: shardCost,
+				Hygiene:               !isProvisioned, // WO-197: on-demand idle streams have no shard cost but must stay visible.
 				Metadata: map[string]any{
 					"shard_count": info.shardCount,
 					"stream_mode": info.mode,

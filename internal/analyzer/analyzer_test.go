@@ -48,6 +48,7 @@ func TestAnalyze_IncludesZeroWasteHygieneFindings(t *testing.T) {
 		{awstype.FindingSNSIdle, awstype.SeverityLow, awstype.ResourceSNS},
 		{awstype.FindingCloudFrontDisabled, awstype.SeverityLow, awstype.ResourceCloudFront},
 		{awstype.FindingCloudFrontIdle, awstype.SeverityMedium, awstype.ResourceCloudFront},
+		{awstype.FindingKinesisStreamIdle, awstype.SeverityHigh, awstype.ResourceKinesis},
 	}
 
 	findings := make([]awstype.Finding, 0, len(hygieneFindings)+2)
@@ -111,6 +112,35 @@ func TestAnalyze_HygieneMarkerDoesNotRequireFindingIDSwitch(t *testing.T) {
 	}
 	if analysis.Findings[0].ID != futureFinding {
 		t.Fatalf("expected future marker-driven finding, got %s", analysis.Findings[0].ID)
+	}
+}
+
+func TestAnalyze_DoesNotExemptKinesisIdleByID(t *testing.T) {
+	result := &awstype.ScanResult{
+		Findings: []awstype.Finding{
+			{
+				ID:                    awstype.FindingKinesisStreamIdle,
+				Severity:              awstype.SeverityHigh,
+				ResourceType:          awstype.ResourceKinesis,
+				EstimatedMonthlyWaste: 0,
+			},
+			{
+				ID:                    awstype.FindingKinesisStreamIdle,
+				Severity:              awstype.SeverityHigh,
+				ResourceType:          awstype.ResourceKinesis,
+				EstimatedMonthlyWaste: 0,
+				Hygiene:               true,
+			},
+		},
+	}
+
+	analysis := Analyze(result, AnalyzerConfig{MinMonthlyCost: 1.0})
+
+	if len(analysis.Findings) != 1 {
+		t.Fatalf("expected only marked Kinesis hygiene finding, got %#v", analysis.Findings)
+	}
+	if !analysis.Findings[0].Hygiene {
+		t.Fatalf("expected marker-driven Kinesis idle finding to remain visible")
 	}
 }
 
