@@ -140,6 +140,8 @@ func (s *MultiRegionScanner) scanGlobal(ctx context.Context) (*ScanResult, error
 
 			mu.Lock()
 			result.Findings = append(result.Findings, sr.Findings...)
+			// WO-191: preserve partial scanner diagnostics alongside successful findings.
+			result.Errors = append(result.Errors, sr.Errors...)
 			result.ResourcesScanned += sr.ResourcesScanned
 			mu.Unlock()
 			return nil
@@ -181,6 +183,8 @@ func (s *MultiRegionScanner) scanRegion(ctx context.Context, region string) (*Sc
 
 			mu.Lock()
 			result.Findings = append(result.Findings, sr.Findings...)
+			// WO-191: preserve partial scanner diagnostics alongside successful findings.
+			result.Errors = append(result.Errors, sr.Errors...)
 			result.ResourcesScanned += sr.ResourcesScanned
 			mu.Unlock()
 			return nil

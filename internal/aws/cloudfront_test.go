@@ -190,6 +190,50 @@ func TestCloudFrontScannerPreservesDisabledFindingsWhenMetricsFail(t *testing.T)
 	}
 }
 
+// WO-191: verifies metric diagnostics survive the global scanner aggregation path.
+func TestMultiRegionScannerPreservesCloudFrontMetricErrors(t *testing.T) {
+	t.Parallel()
+
+	cf := &fakeCloudFrontClient{
+		pages: []*cloudfront.ListDistributionsOutput{
+			cloudFrontPage(false,
+				cloudFrontDistribution("disabled", false),
+				cloudFrontDistribution("enabled", true),
+			),
+		},
+	}
+	cw := &fakeCloudWatchClient{err: errors.New("cloudwatch throttled")}
+
+	scanner := &MultiRegionScanner{
+		configForRegion: func(region string) awssdk.Config {
+			return awssdk.Config{Region: region}
+		},
+		regionalScannerBuilder: func(_ awssdk.Config, _ string) []ResourceScanner {
+			return nil
+		},
+		globalScannerBuilder: func(_ awssdk.Config) []ResourceScanner {
+			return []ResourceScanner{NewCloudFrontScanner(cf, NewMetricsFetcher(cw))}
+		},
+	}
+
+	result, err := scanner.ScanAll(context.Background())
+	if err != nil {
+		t.Fatalf("scan all: %v", err)
+	}
+
+	findings := findingsByResourceID(result.Findings)
+	assertCloudFrontFinding(t, findings["disabled"], FindingCloudFrontDisabled, SeverityLow)
+	if _, ok := findings["enabled"]; ok {
+		t.Fatalf("enabled distribution should not emit idle finding when metrics fail")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected one propagated metric error, got %#v", result.Errors)
+	}
+	if !strings.Contains(result.Errors[0], "cloudfront requests metric") {
+		t.Fatalf("expected CloudFront metric context, got %q", result.Errors[0])
+	}
+}
+
 func TestMultiRegionScannerRunsCloudFrontOnce(t *testing.T) {
 	t.Parallel()
 
