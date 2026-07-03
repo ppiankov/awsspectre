@@ -74,6 +74,7 @@ func (s *SecurityGroupScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanR
 			Region:                s.region,
 			Message:               fmt.Sprintf("Security group %q has no attached ENIs", sgName),
 			EstimatedMonthlyWaste: 0, // SGs have no direct cost
+			Hygiene:               true,
 			Metadata: map[string]any{
 				"group_name": sgName,
 				"vpc_id":     deref(sg.VpcId),

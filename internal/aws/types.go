@@ -75,6 +75,7 @@ type Finding struct {
 	Region                string         `json:"region"`
 	Message               string         `json:"message"`
 	EstimatedMonthlyWaste float64        `json:"estimated_monthly_waste"`
+	Hygiene               bool           `json:"hygiene,omitempty"` // WO-194: zero-waste hygiene findings bypass cost filtering structurally.
 	Metadata              map[string]any `json:"metadata,omitempty"`
 }
 

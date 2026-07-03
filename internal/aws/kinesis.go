@@ -262,6 +262,7 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 			Region:                s.region,
 			Message:               fmt.Sprintf("Zero incoming records over %d days", cfg.IdleDays),
 			EstimatedMonthlyWaste: 0,
+			Hygiene:               true,
 			Metadata: map[string]any{
 				"delivery_stream_name": name,
 			},

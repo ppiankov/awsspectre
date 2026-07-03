@@ -14,6 +14,8 @@ func TestAnalyze_FiltersByMinCost(t *testing.T) {
 			{ID: awstype.FindingIdleEC2, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEC2, EstimatedMonthlyWaste: 50.0},
 			{ID: awstype.FindingUnusedEIP, Severity: awstype.SeverityMedium, ResourceType: awstype.ResourceEIP, EstimatedMonthlyWaste: 3.6},
 			{ID: awstype.FindingDetachedEBS, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEBS, EstimatedMonthlyWaste: 0.5},
+			// WO-194: STOPPED_EC2 is cost-bearing after EBS enrichment, not generic hygiene.
+			{ID: awstype.FindingStoppedEC2, Severity: awstype.SeverityLow, ResourceType: awstype.ResourceEC2, EstimatedMonthlyWaste: 0},
 		},
 	}
 
@@ -30,40 +32,85 @@ func TestAnalyze_FiltersByMinCost(t *testing.T) {
 	}
 }
 
-func TestAnalyze_IncludesZeroWasteCloudFrontFindings(t *testing.T) {
+func TestAnalyze_IncludesZeroWasteHygieneFindings(t *testing.T) {
+	hygieneFindings := []struct {
+		id           awstype.FindingID
+		severity     awstype.Severity
+		resourceType awstype.ResourceType
+	}{
+		{awstype.FindingUnusedSecurityGroup, awstype.SeverityLow, awstype.ResourceSecurityGroup},
+		{awstype.FindingIdleLambda, awstype.SeverityLow, awstype.ResourceLambda},
+		{awstype.FindingKinesisFirehoseIdle, awstype.SeverityMedium, awstype.ResourceFirehose},
+		{awstype.FindingSQSIdle, awstype.SeverityMedium, awstype.ResourceSQS},
+		{awstype.FindingSQSDLQOrphaned, awstype.SeverityHigh, awstype.ResourceSQS},
+		{awstype.FindingSQSNoConsumer, awstype.SeverityMedium, awstype.ResourceSQS},
+		{awstype.FindingSNSNoSubscribers, awstype.SeverityMedium, awstype.ResourceSNS},
+		{awstype.FindingSNSIdle, awstype.SeverityLow, awstype.ResourceSNS},
+		{awstype.FindingCloudFrontDisabled, awstype.SeverityLow, awstype.ResourceCloudFront},
+		{awstype.FindingCloudFrontIdle, awstype.SeverityMedium, awstype.ResourceCloudFront},
+	}
+
+	findings := make([]awstype.Finding, 0, len(hygieneFindings)+2)
+	for _, tc := range hygieneFindings {
+		findings = append(findings, awstype.Finding{
+			ID:                    tc.id,
+			Severity:              tc.severity,
+			ResourceType:          tc.resourceType,
+			EstimatedMonthlyWaste: 0,
+			Hygiene:               true,
+		})
+	}
+	findings = append(findings,
+		awstype.Finding{ID: awstype.FindingDetachedEBS, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEBS, EstimatedMonthlyWaste: 0.5},
+		awstype.Finding{ID: awstype.FindingIdleEC2, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEC2, EstimatedMonthlyWaste: 50},
+	)
+
 	result := &awstype.ScanResult{
-		ResourcesScanned: 4,
+		ResourcesScanned: len(findings),
 		RegionsScanned:   2,
+		Findings:         findings,
+	}
+
+	analysis := Analyze(result, AnalyzerConfig{MinMonthlyCost: 1.0})
+	wantFindings := len(hygieneFindings) + 1
+
+	if len(analysis.Findings) != wantFindings {
+		t.Fatalf("expected %d findings after hygiene exemption, got %d", wantFindings, len(analysis.Findings))
+	}
+	if analysis.Summary.TotalFindings != wantFindings {
+		t.Fatalf("expected summary total %d, got %d", wantFindings, analysis.Summary.TotalFindings)
+	}
+	if analysis.Summary.TotalMonthlyWaste != 50 {
+		t.Fatalf("expected waste 50.0, got %f", analysis.Summary.TotalMonthlyWaste)
+	}
+
+	for _, tc := range hygieneFindings {
+		if !hasFindingID(analysis.Findings, tc.id) {
+			t.Fatalf("expected hygiene finding %s to remain visible", tc.id)
+		}
+	}
+	if hasFindingID(analysis.Findings, awstype.FindingDetachedEBS) {
+		t.Fatalf("expected non-hygiene low-cost EBS finding to remain filtered")
+	}
+}
+
+func TestAnalyze_HygieneMarkerDoesNotRequireFindingIDSwitch(t *testing.T) {
+	const futureFinding awstype.FindingID = "FUTURE_ZERO_WASTE"
+
+	result := &awstype.ScanResult{
 		Findings: []awstype.Finding{
-			{ID: awstype.FindingCloudFrontDisabled, Severity: awstype.SeverityLow, ResourceType: awstype.ResourceCloudFront, EstimatedMonthlyWaste: 0},
-			{ID: awstype.FindingCloudFrontIdle, Severity: awstype.SeverityMedium, ResourceType: awstype.ResourceCloudFront, EstimatedMonthlyWaste: 0},
+			{ID: futureFinding, Severity: awstype.SeverityLow, ResourceType: awstype.ResourceSecurityGroup, EstimatedMonthlyWaste: 0, Hygiene: true},
 			{ID: awstype.FindingDetachedEBS, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEBS, EstimatedMonthlyWaste: 0.5},
-			{ID: awstype.FindingIdleEC2, Severity: awstype.SeverityHigh, ResourceType: awstype.ResourceEC2, EstimatedMonthlyWaste: 50},
 		},
 	}
 
 	analysis := Analyze(result, AnalyzerConfig{MinMonthlyCost: 1.0})
 
-	if len(analysis.Findings) != 3 {
-		t.Fatalf("expected 3 findings after CloudFront exemption, got %d", len(analysis.Findings))
+	if len(analysis.Findings) != 1 {
+		t.Fatalf("expected only marker-driven hygiene finding, got %#v", analysis.Findings)
 	}
-	if analysis.Summary.TotalFindings != 3 {
-		t.Fatalf("expected summary total 3, got %d", analysis.Summary.TotalFindings)
-	}
-	if analysis.Summary.TotalMonthlyWaste != 50 {
-		t.Fatalf("expected waste 50.0, got %f", analysis.Summary.TotalMonthlyWaste)
-	}
-	if analysis.Summary.BySeverity["low"] != 1 {
-		t.Fatalf("expected 1 low severity, got %d", analysis.Summary.BySeverity["low"])
-	}
-	if analysis.Summary.BySeverity["medium"] != 1 {
-		t.Fatalf("expected 1 medium severity, got %d", analysis.Summary.BySeverity["medium"])
-	}
-	if analysis.Summary.ByResourceType["cloudfront"] != 2 {
-		t.Fatalf("expected 2 CloudFront findings, got %d", analysis.Summary.ByResourceType["cloudfront"])
-	}
-	if hasFindingID(analysis.Findings, awstype.FindingDetachedEBS) {
-		t.Fatalf("expected non-exempt low-cost EBS finding to remain filtered")
+	if analysis.Findings[0].ID != futureFinding {
+		t.Fatalf("expected future marker-driven finding, got %s", analysis.Findings[0].ID)
 	}
 }
 

@@ -91,6 +91,7 @@ func (s *LambdaScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, 
 			Region:                s.region,
 			Message:               fmt.Sprintf("Zero invocations over %d days", cfg.IdleDays),
 			EstimatedMonthlyWaste: 0,
+			Hygiene:               true,
 			Metadata:              meta,
 		})
 	}

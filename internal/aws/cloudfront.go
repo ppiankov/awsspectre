@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -109,14 +110,19 @@ func (s *CloudFrontScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 		return result, nil
 	}
 
+	lookbackStart := time.Now().UTC().Add(-time.Duration(cfg.IdleDays) * 24 * time.Hour)
 	for _, id := range enabledIDs {
 		if requests[id] > 0 {
+			continue
+		}
+		distribution := enabled[id]
+		if !cloudFrontOldEnoughForIdle(distribution, lookbackStart) {
 			continue
 		}
 		result.Findings = append(result.Findings, cloudFrontFinding(
 			FindingCloudFrontIdle,
 			SeverityMedium,
-			enabled[id],
+			distribution,
 			fmt.Sprintf("CloudFront distribution had zero requests over the last %d days", cfg.IdleDays),
 		))
 	}
@@ -152,14 +158,26 @@ func cloudFrontFinding(id FindingID, severity Severity, distribution cftypes.Dis
 		Region:                cloudFrontFindingRegion,
 		Message:               message,
 		EstimatedMonthlyWaste: 0,
+		Hygiene:               true,
 		Metadata:              cloudFrontMetadata(distribution),
 	}
+}
+
+func cloudFrontOldEnoughForIdle(distribution cftypes.DistributionSummary, lookbackStart time.Time) bool {
+	if distribution.LastModifiedTime == nil {
+		return true
+	}
+	// WO-196: LastModifiedTime is a list-response age proxy, not true creation time.
+	return !distribution.LastModifiedTime.After(lookbackStart)
 }
 
 func cloudFrontMetadata(distribution cftypes.DistributionSummary) map[string]any {
 	metadata := map[string]any{
 		"domain_name": awssdk.ToString(distribution.DomainName),
 		"status":      awssdk.ToString(distribution.Status),
+	}
+	if distribution.LastModifiedTime != nil {
+		metadata["last_modified"] = distribution.LastModifiedTime.UTC().Format(time.RFC3339)
 	}
 	if distribution.Aliases != nil && len(distribution.Aliases.Items) > 0 {
 		metadata["aliases"] = distribution.Aliases.Items

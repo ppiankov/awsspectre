@@ -35,15 +35,9 @@ func Analyze(result *awstype.ScanResult, cfg AnalyzerConfig) *AnalysisResult {
 }
 
 func includeFinding(f awstype.Finding, minMonthlyCost float64) bool {
-	if f.EstimatedMonthlyWaste >= minMonthlyCost {
+	if f.Hygiene {
 		return true
 	}
 
-	// WO-190: CloudFront hygiene findings intentionally carry no direct monthly waste.
-	switch f.ID {
-	case awstype.FindingCloudFrontDisabled, awstype.FindingCloudFrontIdle:
-		return true
-	default:
-		return false
-	}
+	return f.EstimatedMonthlyWaste >= minMonthlyCost
 }

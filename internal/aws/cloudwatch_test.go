@@ -74,6 +74,57 @@ func TestMetricsFetcher_FetchSum(t *testing.T) {
 	}
 }
 
+func TestMetricsFetcher_FetchSumWithStaticDim(t *testing.T) {
+	var captured *cloudwatch.GetMetricDataInput
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			captured = input
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Id:     awssdk.String("m0"),
+						Values: []float64{1.0, 2.0},
+					},
+				},
+			}, nil
+		},
+	}
+
+	fetcher := NewMetricsFetcher(mock)
+	result, err := fetcher.FetchSumWithStaticDim(
+		context.Background(),
+		"AWS/CloudFront",
+		"Requests",
+		"DistributionId",
+		[]string{"dist-001"},
+		7,
+		[]cwtypes.Dimension{
+			{Name: awssdk.String("Region"), Value: awssdk.String("Global")},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result["dist-001"] != 3.0 {
+		t.Fatalf("expected sum 3.0, got %f", result["dist-001"])
+	}
+	if captured == nil || len(captured.MetricDataQueries) != 1 {
+		t.Fatalf("expected one captured query, got %#v", captured)
+	}
+
+	query := captured.MetricDataQueries[0]
+	if awssdk.ToString(query.MetricStat.Stat) != "Sum" {
+		t.Fatalf("expected Sum stat, got %s", awssdk.ToString(query.MetricStat.Stat))
+	}
+	dimensions := query.MetricStat.Metric.Dimensions
+	if got := metricDimensionValue(dimensions, "DistributionId"); got != "dist-001" {
+		t.Fatalf("expected DistributionId=dist-001, got %q", got)
+	}
+	if got := metricDimensionValue(dimensions, "Region"); got != "Global" {
+		t.Fatalf("expected Region=Global, got %q", got)
+	}
+}
+
 func TestMetricsFetcher_EmptyIDs(t *testing.T) {
 	fetcher := NewMetricsFetcher(nil)
 	result, err := fetcher.FetchAverage(context.Background(), "AWS/EC2", "CPUUtilization", "InstanceId", nil, 7)
@@ -83,6 +134,15 @@ func TestMetricsFetcher_EmptyIDs(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result for empty IDs, got %v", result)
 	}
+}
+
+func metricDimensionValue(dimensions []cwtypes.Dimension, name string) string {
+	for _, dimension := range dimensions {
+		if awssdk.ToString(dimension.Name) == name {
+			return awssdk.ToString(dimension.Value)
+		}
+	}
+	return ""
 }
 
 func TestMetricsFetcher_NoDataPoints(t *testing.T) {

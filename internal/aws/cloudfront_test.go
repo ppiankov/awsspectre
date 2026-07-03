@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -101,6 +102,46 @@ func TestCloudFrontScannerDoesNotFetchMetricsWithoutEnabledDistributions(t *test
 	}
 	if len(cw.inputs) != 0 {
 		t.Fatalf("expected no CloudWatch calls, got %d", len(cw.inputs))
+	}
+}
+
+func TestCloudFrontScannerGatesIdleFindingsByDistributionAge(t *testing.T) {
+	t.Parallel()
+
+	const idleDays = 30
+	now := time.Now().UTC()
+	youngLastModified := now.Add(-24 * time.Hour)
+	oldLastModified := now.Add(-(idleDays + 1) * 24 * time.Hour)
+
+	cf := &fakeCloudFrontClient{
+		pages: []*cloudfront.ListDistributionsOutput{
+			cloudFrontPage(false,
+				cloudFrontDistributionWithLastModified("young", true, youngLastModified),
+				cloudFrontDistributionWithLastModified("old", true, oldLastModified),
+				cloudFrontDistributionWithLastModified("disabled", false, youngLastModified),
+			),
+		},
+	}
+	cw := &fakeCloudWatchClient{
+		values: map[string]float64{
+			"young": 0,
+			"old":   0,
+		},
+	}
+
+	result, err := NewCloudFrontScanner(cf, NewMetricsFetcher(cw)).Scan(context.Background(), ScanConfig{IdleDays: idleDays})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	findings := findingsByResourceID(result.Findings)
+	if _, ok := findings["young"]; ok {
+		t.Fatalf("young zero-request distribution should not emit idle finding")
+	}
+	assertCloudFrontFinding(t, findings["old"], FindingCloudFrontIdle, SeverityMedium)
+	assertCloudFrontFinding(t, findings["disabled"], FindingCloudFrontDisabled, SeverityLow)
+	if findings["old"].Metadata["last_modified"] == "" {
+		t.Fatalf("expected last_modified metadata for aged idle distribution")
 	}
 }
 
@@ -299,12 +340,21 @@ func TestMultiRegionScannerRunsCloudFrontOnce(t *testing.T) {
 }
 
 func cloudFrontDistribution(id string, enabled bool) cftypes.DistributionSummary {
+	return cloudFrontDistributionWithLastModified(id, enabled, time.Time{})
+}
+
+func cloudFrontDistributionWithLastModified(id string, enabled bool, lastModified time.Time) cftypes.DistributionSummary {
+	var lastModifiedPtr *time.Time
+	if !lastModified.IsZero() {
+		lastModifiedPtr = awssdk.Time(lastModified)
+	}
 	return cftypes.DistributionSummary{
-		Id:         awssdk.String(id),
-		ARN:        awssdk.String("arn:aws:cloudfront::123456789012:distribution/" + id),
-		DomainName: awssdk.String(id + ".cloudfront.net"),
-		Status:     awssdk.String("Deployed"),
-		Enabled:    awssdk.Bool(enabled),
+		Id:               awssdk.String(id),
+		ARN:              awssdk.String("arn:aws:cloudfront::123456789012:distribution/" + id),
+		DomainName:       awssdk.String(id + ".cloudfront.net"),
+		Status:           awssdk.String("Deployed"),
+		Enabled:          awssdk.Bool(enabled),
+		LastModifiedTime: lastModifiedPtr,
 		Aliases: &cftypes.Aliases{
 			Items: []string{id + ".example.com"},
 		},
