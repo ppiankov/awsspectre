@@ -400,6 +400,10 @@ func assertCloudFrontFinding(t *testing.T, finding Finding, id FindingID, severi
 	if finding.EstimatedMonthlyWaste != 0 {
 		t.Fatalf("expected zero estimated waste, got %f", finding.EstimatedMonthlyWaste)
 	}
+	// WO-209: scanner-emitted CloudFront hygiene findings must stay default-visible.
+	if !finding.Hygiene {
+		t.Fatalf("expected CloudFront hygiene marker")
+	}
 	if finding.ResourceName == "" {
 		t.Fatalf("expected ARN resource name")
 	}
