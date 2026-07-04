@@ -5,6 +5,21 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-04
+
+### Added
+
+- CloudFront scanner: `CLOUDFRONT_DISABLED` (disabled distribution still present) and `CLOUDFRONT_IDLE` (zero requests over the idle window), evaluated once as a global service
+- `cloudfront:ListDistributions` permission in the generated IAM policy
+
+### Changed
+
+- Zero-waste hygiene findings (security groups, idle Lambda, Firehose, SQS, SNS, on-demand Kinesis, and CloudFront) now stay visible under the default `--min-monthly-cost` filter via a structural hygiene marker
+
+### Fixed
+
+- SARIF output now declares rules for every emitted finding ID, so results reference valid rule metadata
+
 ## [0.4.0] - 2026-03-01
 
 ### Added
