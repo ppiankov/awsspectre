@@ -109,6 +109,7 @@ timeout: 10m
 #     - "awsspectre:ignore"
 `
 
+// WO-199: generated IAM policy must cover CloudFront distribution inventory.
 const sampleIAMPolicy = `{
   "Version": "2012-10-17",
   "Statement": [
@@ -138,6 +139,7 @@ const sampleIAMPolicy = `{
         "sqs:GetQueueAttributes",
         "sns:ListTopics",
         "sns:ListSubscriptionsByTopic",
+        "cloudfront:ListDistributions",
         "cloudwatch:GetMetricData",
         "sts:GetCallerIdentity"
       ],

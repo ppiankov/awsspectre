@@ -8,7 +8,7 @@ import (
 func Analyze(result *awstype.ScanResult, cfg AnalyzerConfig) *AnalysisResult {
 	var filtered []awstype.Finding
 	for _, f := range result.Findings {
-		if f.EstimatedMonthlyWaste >= cfg.MinMonthlyCost {
+		if includeFinding(f, cfg.MinMonthlyCost) {
 			filtered = append(filtered, f)
 		}
 	}
@@ -32,4 +32,12 @@ func Analyze(result *awstype.ScanResult, cfg AnalyzerConfig) *AnalysisResult {
 		Summary:  summary,
 		Errors:   result.Errors,
 	}
+}
+
+func includeFinding(f awstype.Finding, minMonthlyCost float64) bool {
+	if f.Hygiene {
+		return true
+	}
+
+	return f.EstimatedMonthlyWaste >= minMonthlyCost
 }

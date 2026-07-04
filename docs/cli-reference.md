@@ -92,6 +92,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `firehose:ListDeliveryStreams`
 - `sqs:ListQueues`, `sqs:GetQueueAttributes`
 - `sns:ListTopics`, `sns:ListSubscriptionsByTopic`
+- `cloudfront:ListDistributions`
 - `cloudwatch:GetMetricData`
 
 
@@ -126,11 +127,12 @@ awsspectre/
 ├── cmd/awsspectre/main.go         # Entry point (22 lines, LDFLAGS)
 ├── internal/
 │   ├── commands/                  # Cobra CLI: scan, init, version
-│   ├── aws/                       # AWS SDK v2 clients + 13 resource scanners
+│   ├── aws/                       # AWS SDK v2 clients + global/regional resource scanners
 │   │   ├── types.go               # Finding, Severity, ResourceType, ScanConfig
 │   │   ├── client.go              # AWS config loader, region discovery
 │   │   ├── cloudwatch.go          # Batched GetMetricData (up to 500 queries/call)
 │   │   ├── scanner.go             # MultiRegionScanner orchestrator
+│   │   ├── cloudfront.go          # CloudFront: disabled distributions, zero requests
 │   │   ├── ec2.go                 # EC2: idle CPU, stopped instances
 │   │   ├── ebs.go                 # EBS: detached volumes
 │   │   ├── eip.go                 # EIP: unassociated addresses
@@ -167,7 +169,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| 13 resource scanners (EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, snapshots, security groups) | Complete |
+| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, snapshots, and security groups | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |
@@ -190,4 +192,3 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **Security group references.** Only checks ENI attachment and in-rules cross-references. Does not trace through nested group chains.
 - **Snapshot AMI check.** Only validates against AMIs owned by the account. Shared AMIs referencing the snapshot will not be detected.
 - **Single metric thresholds.** CPU < 5% is a simple heuristic. Some workloads (batch, cron) may appear idle but are not.
-

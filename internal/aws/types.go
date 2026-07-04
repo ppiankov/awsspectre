@@ -34,6 +34,7 @@ const (
 	ResourceFirehose      ResourceType = "firehose"
 	ResourceSQS           ResourceType = "sqs"
 	ResourceSNS           ResourceType = "sns"
+	ResourceCloudFront    ResourceType = "cloudfront" // WO-189: global CloudFront hygiene scanner.
 )
 
 // FindingID identifies the type of waste detected.
@@ -60,6 +61,8 @@ const (
 	FindingSQSNoConsumer          FindingID = "SQS_NO_CONSUMER"
 	FindingSNSNoSubscribers       FindingID = "SNS_NO_SUBSCRIBERS"
 	FindingSNSIdle                FindingID = "SNS_IDLE"
+	FindingCloudFrontDisabled     FindingID = "CLOUDFRONT_DISABLED" // WO-189: disabled distribution hygiene signal.
+	FindingCloudFrontIdle         FindingID = "CLOUDFRONT_IDLE"     // WO-189: zero-request distribution hygiene signal.
 )
 
 // Finding represents a single waste detection result.
@@ -72,6 +75,7 @@ type Finding struct {
 	Region                string         `json:"region"`
 	Message               string         `json:"message"`
 	EstimatedMonthlyWaste float64        `json:"estimated_monthly_waste"`
+	Hygiene               bool           `json:"hygiene,omitempty"` // WO-194: zero-waste hygiene findings bypass cost filtering structurally.
 	Metadata              map[string]any `json:"metadata,omitempty"`
 }
 

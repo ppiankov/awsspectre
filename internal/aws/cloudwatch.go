@@ -36,16 +36,22 @@ func NewMetricsFetcher(client CloudWatchAPI) *MetricsFetcher {
 // FetchAverage retrieves the average value of a metric for a set of resource IDs over a lookback period.
 // Returns a map of resource ID to average value.
 func (f *MetricsFetcher) FetchAverage(ctx context.Context, namespace, metricName, dimensionName string, ids []string, lookbackDays int) (map[string]float64, error) {
-	return f.fetchMetric(ctx, namespace, metricName, dimensionName, ids, lookbackDays, "Average")
+	return f.fetchMetric(ctx, namespace, metricName, dimensionName, ids, lookbackDays, "Average", nil)
 }
 
 // FetchSum retrieves the sum of a metric for a set of resource IDs over a lookback period.
 // Returns a map of resource ID to total sum.
 func (f *MetricsFetcher) FetchSum(ctx context.Context, namespace, metricName, dimensionName string, ids []string, lookbackDays int) (map[string]float64, error) {
-	return f.fetchMetric(ctx, namespace, metricName, dimensionName, ids, lookbackDays, "Sum")
+	return f.fetchMetric(ctx, namespace, metricName, dimensionName, ids, lookbackDays, "Sum", nil)
 }
 
-func (f *MetricsFetcher) fetchMetric(ctx context.Context, namespace, metricName, dimensionName string, ids []string, lookbackDays int, stat string) (map[string]float64, error) {
+// FetchSumWithStaticDim retrieves the sum of a metric with per-resource and static dimensions.
+func (f *MetricsFetcher) FetchSumWithStaticDim(ctx context.Context, namespace, metricName, dimensionName string, ids []string, lookbackDays int, staticDims []cwtypes.Dimension) (map[string]float64, error) {
+	// WO-189: CloudFront metrics require DistributionId plus the static Region=Global dimension.
+	return f.fetchMetric(ctx, namespace, metricName, dimensionName, ids, lookbackDays, "Sum", staticDims)
+}
+
+func (f *MetricsFetcher) fetchMetric(ctx context.Context, namespace, metricName, dimensionName string, ids []string, lookbackDays int, stat string, staticDims []cwtypes.Dimension) (map[string]float64, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -62,18 +68,20 @@ func (f *MetricsFetcher) fetchMetric(ctx context.Context, namespace, metricName,
 		queries := make([]cwtypes.MetricDataQuery, 0, len(batch))
 		for i, id := range batch {
 			queryID := fmt.Sprintf("m%d", i)
+			dimensions := make([]cwtypes.Dimension, 0, len(staticDims)+1)
+			dimensions = append(dimensions, cwtypes.Dimension{
+				Name:  awssdk.String(dimensionName),
+				Value: awssdk.String(id),
+			})
+			dimensions = append(dimensions, staticDims...)
+
 			queries = append(queries, cwtypes.MetricDataQuery{
 				Id: awssdk.String(queryID),
 				MetricStat: &cwtypes.MetricStat{
 					Metric: &cwtypes.Metric{
 						Namespace:  awssdk.String(namespace),
 						MetricName: awssdk.String(metricName),
-						Dimensions: []cwtypes.Dimension{
-							{
-								Name:  awssdk.String(dimensionName),
-								Value: awssdk.String(id),
-							},
-						},
+						Dimensions: dimensions,
 					},
 					Period: awssdk.Int32(metricPeriodSeconds),
 					Stat:   awssdk.String(stat),
