@@ -8,7 +8,7 @@
 
 ## What it is
 
-- Scans EC2, RDS, EBS, ELB, NAT Gateway, EIP, Lambda, Kinesis, SQS, SNS, snapshots, and security groups
+- Scans EC2, RDS, EBS, ELB, NAT Gateway, EIP, Lambda, Kinesis, SQS, SNS, CloudFront, snapshots, and security groups
 - Detects idle, orphaned, and oversized resources using CloudWatch metrics
 - Estimates monthly waste in USD per finding
 - Supports tag-based exclusions and configurable thresholds
