@@ -138,10 +138,8 @@ func (s *SnapshotScanner) amiReferencedSnapshots(ctx context.Context) (map[strin
 }
 
 func snapshotName(snap ec2types.Snapshot) string {
-	for _, tag := range snap.Tags {
-		if deref(tag.Key) == "Name" {
-			return deref(tag.Value)
-		}
+	if name := tagValue(snap.Tags, "Name"); name != "" {
+		return name
 	}
 	return deref(snap.Description)
 }

@@ -111,12 +111,7 @@ func (s *EBSScanner) listAvailableVolumes(ctx context.Context) ([]ec2types.Volum
 }
 
 func volumeName(vol ec2types.Volume) string {
-	for _, tag := range vol.Tags {
-		if deref(tag.Key) == "Name" {
-			return deref(tag.Value)
-		}
-	}
-	return ""
+	return tagValue(vol.Tags, "Name")
 }
 
 func derefInt32(v *int32) int32 {
