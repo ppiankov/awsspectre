@@ -14,10 +14,15 @@ import (
 
 type mockLambdaClient struct {
 	functions []lambdatypes.FunctionConfiguration
+	tags      map[string]map[string]string
 }
 
 func (m *mockLambdaClient) ListFunctions(_ context.Context, _ *lambda.ListFunctionsInput, _ ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error) {
 	return &lambda.ListFunctionsOutput{Functions: m.functions}, nil
+}
+
+func (m *mockLambdaClient) ListTags(_ context.Context, input *lambda.ListTagsInput, _ ...func(*lambda.Options)) (*lambda.ListTagsOutput, error) {
+	return &lambda.ListTagsOutput{Tags: m.tags[*input.Resource]}, nil
 }
 
 func TestLambdaScanner_IdleFunction(t *testing.T) {
@@ -171,6 +176,38 @@ func TestLambdaScanner_ExcludedFunction(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings for excluded function, got %d", len(result.Findings))
+	}
+}
+
+func TestLambdaScanner_ExcludedByTag(t *testing.T) {
+	arn := "arn:aws:lambda:us-east-1:123456789012:function:tagged-func"
+	mock := &mockLambdaClient{
+		functions: []lambdatypes.FunctionConfiguration{
+			{
+				FunctionName: awssdk.String("tagged-func"),
+				FunctionArn:  awssdk.String(arn),
+				Runtime:      lambdatypes.RuntimePython312,
+				CodeSize:     512,
+			},
+		},
+		tags: map[string]map[string]string{
+			arn: {"Team": "payments"},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewLambdaScanner(mock, metrics, "us-east-1")
+
+	cfg := ScanConfig{
+		IdleDays: 7,
+		Exclude:  ExcludeConfig{Tags: map[string]string{"Team": "payments"}},
+	}
+	result, err := scanner.Scan(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for tag-excluded function, got %d", len(result.Findings))
 	}
 }
 

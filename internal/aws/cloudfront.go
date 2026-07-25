@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -25,6 +26,7 @@ const (
 // WO-189: keeps distribution listing testable without live AWS calls.
 type CloudFrontAPI interface {
 	ListDistributions(ctx context.Context, input *cloudfront.ListDistributionsInput, opts ...func(*cloudfront.Options)) (*cloudfront.ListDistributionsOutput, error)
+	ListTagsForResource(ctx context.Context, input *cloudfront.ListTagsForResourceInput, opts ...func(*cloudfront.Options)) (*cloudfront.ListTagsForResourceOutput, error)
 }
 
 // CloudFrontScanner detects disabled and zero-traffic CloudFront distributions.
@@ -65,7 +67,12 @@ func (s *CloudFrontScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 		if id == "" {
 			continue
 		}
-		if cfg.Exclude.ShouldExclude(id, nil) {
+		tags, err := s.fetchTags(ctx, awssdk.ToString(distribution.ARN))
+		if err != nil {
+			slog.Warn("Failed to fetch CloudFront distribution tags", "distribution", id, "error", err)
+			tags = nil
+		}
+		if cfg.Exclude.ShouldExclude(id, tags) {
 			continue
 		}
 
@@ -128,6 +135,26 @@ func (s *CloudFrontScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 	}
 
 	return result, nil
+}
+
+// fetchTags fetches all tags for a CloudFront distribution (ListTagsForResource
+// has no pagination and no bulk/batched variant).
+func (s *CloudFrontScanner) fetchTags(ctx context.Context, arn string) (map[string]string, error) {
+	if arn == "" {
+		return nil, nil
+	}
+	out, err := s.client.ListTagsForResource(ctx, &cloudfront.ListTagsForResourceInput{Resource: &arn})
+	if err != nil {
+		return nil, err
+	}
+	if out.Tags == nil {
+		return nil, nil
+	}
+	tags := make(map[string]string, len(out.Tags.Items))
+	for _, t := range out.Tags.Items {
+		tags[awssdk.ToString(t.Key)] = awssdk.ToString(t.Value)
+	}
+	return tags, nil
 }
 
 func (s *CloudFrontScanner) listDistributions(ctx context.Context) ([]cftypes.DistributionSummary, error) {

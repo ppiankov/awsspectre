@@ -81,6 +81,33 @@ func TestCloudFrontScannerFindsDisabledAndIdleDistributions(t *testing.T) {
 	assertCloudFrontMetricQuery(t, cw.inputs[0], "active")
 }
 
+func TestCloudFrontScannerExcludedByTag(t *testing.T) {
+	t.Parallel()
+
+	arn := "arn:aws:cloudfront::123456789012:distribution/tagged"
+	cf := &fakeCloudFrontClient{
+		pages: []*cloudfront.ListDistributionsOutput{
+			cloudFrontPage(false, cloudFrontDistribution("tagged", false)),
+		},
+		tags: map[string][]cftypes.Tag{
+			arn: {{Key: awssdk.String("Team"), Value: awssdk.String("payments")}},
+		},
+	}
+	cw := &fakeCloudWatchClient{}
+
+	scanner := NewCloudFrontScanner(cf, NewMetricsFetcher(cw))
+	result, err := scanner.Scan(context.Background(), ScanConfig{
+		IdleDays: 30,
+		Exclude:  ExcludeConfig{Tags: map[string]string{"Team": "payments"}},
+	})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for tag-excluded distribution, got %#v", result.Findings)
+	}
+}
+
 func TestCloudFrontScannerDoesNotFetchMetricsWithoutEnabledDistributions(t *testing.T) {
 	t.Parallel()
 
@@ -455,6 +482,7 @@ type fakeCloudFrontClient struct {
 	pages []*cloudfront.ListDistributionsOutput
 	err   error
 	calls int
+	tags  map[string][]cftypes.Tag // ARN → tags
 }
 
 func (f *fakeCloudFrontClient) ListDistributions(context.Context, *cloudfront.ListDistributionsInput, ...func(*cloudfront.Options)) (*cloudfront.ListDistributionsOutput, error) {
@@ -467,6 +495,12 @@ func (f *fakeCloudFrontClient) ListDistributions(context.Context, *cloudfront.Li
 	page := f.pages[f.calls]
 	f.calls++
 	return page, nil
+}
+
+func (f *fakeCloudFrontClient) ListTagsForResource(_ context.Context, input *cloudfront.ListTagsForResourceInput, _ ...func(*cloudfront.Options)) (*cloudfront.ListTagsForResourceOutput, error) {
+	return &cloudfront.ListTagsForResourceOutput{
+		Tags: &cftypes.Tags{Items: f.tags[awssdk.ToString(input.Resource)]},
+	}, nil
 }
 
 type fakeCloudWatchClient struct {

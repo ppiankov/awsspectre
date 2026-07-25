@@ -15,6 +15,7 @@ import (
 type SQSAPI interface {
 	ListQueues(ctx context.Context, input *sqs.ListQueuesInput, opts ...func(*sqs.Options)) (*sqs.ListQueuesOutput, error)
 	GetQueueAttributes(ctx context.Context, input *sqs.GetQueueAttributesInput, opts ...func(*sqs.Options)) (*sqs.GetQueueAttributesOutput, error)
+	ListQueueTags(ctx context.Context, input *sqs.ListQueueTagsInput, opts ...func(*sqs.Options)) (*sqs.ListQueueTagsOutput, error)
 }
 
 // SQSScanner detects idle SQS queues, no-consumer queues, and orphaned DLQs.
@@ -59,7 +60,12 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 	var queues []sqsQueueInfo
 	for _, url := range queueURLs {
 		name := queueNameFromURL(url)
-		if cfg.Exclude.ShouldExclude(name, nil) {
+		tags, err := s.fetchTags(ctx, url)
+		if err != nil {
+			slog.Warn("Failed to fetch SQS queue tags", "queue", name, "error", err)
+			tags = nil
+		}
+		if cfg.Exclude.ShouldExclude(name, tags) {
 			continue
 		}
 
@@ -207,6 +213,16 @@ func (s *SQSScanner) getQueueInfo(ctx context.Context, queueURL string) (sqsQueu
 		redrivePolicy:      out.Attributes["RedrivePolicy"],
 		redriveAllowPolicy: out.Attributes["RedriveAllowPolicy"],
 	}, nil
+}
+
+// fetchTags fetches all tags for an SQS queue (ListQueueTags has no
+// pagination and no bulk/batched variant).
+func (s *SQSScanner) fetchTags(ctx context.Context, queueURL string) (map[string]string, error) {
+	out, err := s.client.ListQueueTags(ctx, &sqs.ListQueueTagsInput{QueueUrl: &queueURL})
+	if err != nil {
+		return nil, err
+	}
+	return out.Tags, nil
 }
 
 // queueNameFromURL extracts the queue name from an SQS queue URL.

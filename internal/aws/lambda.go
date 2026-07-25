@@ -11,6 +11,7 @@ import (
 // LambdaAPI is the minimal interface for Lambda operations.
 type LambdaAPI interface {
 	ListFunctions(ctx context.Context, input *lambda.ListFunctionsInput, opts ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error)
+	ListTags(ctx context.Context, input *lambda.ListTagsInput, opts ...func(*lambda.Options)) (*lambda.ListTagsOutput, error)
 }
 
 // LambdaScanner detects Lambda functions with zero invocations.
@@ -47,7 +48,12 @@ func (s *LambdaScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, 
 	fnMap := make(map[string]lambdatypes.FunctionConfiguration, len(functions))
 	for _, fn := range functions {
 		name := deref(fn.FunctionName)
-		if cfg.Exclude.ShouldExclude(name, nil) {
+		tags, err := s.fetchTags(ctx, deref(fn.FunctionArn))
+		if err != nil {
+			slog.Warn("Failed to fetch Lambda function tags", "function", name, "error", err)
+			tags = nil
+		}
+		if cfg.Exclude.ShouldExclude(name, tags) {
 			continue
 		}
 		names = append(names, name)
@@ -97,6 +103,19 @@ func (s *LambdaScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, 
 	}
 
 	return result, nil
+}
+
+// fetchTags fetches all tags for a Lambda function (Lambda's ListTags has no
+// pagination and no bulk/batched variant).
+func (s *LambdaScanner) fetchTags(ctx context.Context, functionARN string) (map[string]string, error) {
+	if functionARN == "" {
+		return nil, nil
+	}
+	out, err := s.client.ListTags(ctx, &lambda.ListTagsInput{Resource: &functionARN})
+	if err != nil {
+		return nil, err
+	}
+	return out.Tags, nil
 }
 
 func (s *LambdaScanner) listFunctions(ctx context.Context) ([]lambdatypes.FunctionConfiguration, error) {

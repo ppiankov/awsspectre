@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
+	firehosetypes "github.com/aws/aws-sdk-go-v2/service/firehose/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 )
@@ -16,6 +17,14 @@ import (
 type mockKinesisClient struct {
 	streams   []string
 	summaries map[string]*kinesis.DescribeStreamSummaryOutput
+	tags      map[string][]kinesistypes.Tag
+}
+
+func (m *mockKinesisClient) ListTagsForStream(_ context.Context, input *kinesis.ListTagsForStreamInput, _ ...func(*kinesis.Options)) (*kinesis.ListTagsForStreamOutput, error) {
+	return &kinesis.ListTagsForStreamOutput{
+		Tags:        m.tags[*input.StreamName],
+		HasMoreTags: awssdk.Bool(false),
+	}, nil
 }
 
 func (m *mockKinesisClient) ListStreams(_ context.Context, _ *kinesis.ListStreamsInput, _ ...func(*kinesis.Options)) (*kinesis.ListStreamsOutput, error) {
@@ -34,12 +43,20 @@ func (m *mockKinesisClient) DescribeStreamSummary(_ context.Context, input *kine
 
 type mockFirehoseClient struct {
 	streams []string
+	tags    map[string][]firehosetypes.Tag
 }
 
 func (m *mockFirehoseClient) ListDeliveryStreams(_ context.Context, _ *firehose.ListDeliveryStreamsInput, _ ...func(*firehose.Options)) (*firehose.ListDeliveryStreamsOutput, error) {
 	return &firehose.ListDeliveryStreamsOutput{
 		DeliveryStreamNames:    m.streams,
 		HasMoreDeliveryStreams: awssdk.Bool(false),
+	}, nil
+}
+
+func (m *mockFirehoseClient) ListTagsForDeliveryStream(_ context.Context, input *firehose.ListTagsForDeliveryStreamInput, _ ...func(*firehose.Options)) (*firehose.ListTagsForDeliveryStreamOutput, error) {
+	return &firehose.ListTagsForDeliveryStreamOutput{
+		Tags:        m.tags[*input.DeliveryStreamName],
+		HasMoreTags: awssdk.Bool(false),
 	}, nil
 }
 
@@ -235,6 +252,53 @@ func TestKinesisScanner_Excluded(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings for excluded stream, got %d", len(result.Findings))
+	}
+}
+
+func TestKinesisScanner_ExcludedByTag(t *testing.T) {
+	mock := &mockKinesisClient{
+		streams: []string{"tagged-stream"},
+		summaries: map[string]*kinesis.DescribeStreamSummaryOutput{
+			"tagged-stream": makeKinesisSummary(2, kinesistypes.StreamModeProvisioned, "arn:aws:kinesis:us-east-1:123:stream/tagged-stream"),
+		},
+		tags: map[string][]kinesistypes.Tag{
+			"tagged-stream": {{Key: awssdk.String("Team"), Value: awssdk.String("payments")}},
+		},
+	}
+
+	scanner := NewKinesisScanner(mock, zeroMetricsFetcher(), "us-east-1")
+	cfg := ScanConfig{
+		IdleDays: 7,
+		Exclude:  ExcludeConfig{Tags: map[string]string{"Team": "payments"}},
+	}
+	result, err := scanner.Scan(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for tag-excluded stream, got %d", len(result.Findings))
+	}
+}
+
+func TestFirehoseScanner_ExcludedByTag(t *testing.T) {
+	mock := &mockFirehoseClient{
+		streams: []string{"tagged-firehose"},
+		tags: map[string][]firehosetypes.Tag{
+			"tagged-firehose": {{Key: awssdk.String("Team"), Value: awssdk.String("payments")}},
+		},
+	}
+
+	scanner := NewFirehoseScanner(mock, zeroMetricsFetcher(), "us-east-1")
+	cfg := ScanConfig{
+		IdleDays: 7,
+		Exclude:  ExcludeConfig{Tags: map[string]string{"Team": "payments"}},
+	}
+	result, err := scanner.Scan(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for tag-excluded firehose, got %d", len(result.Findings))
 	}
 }
 
