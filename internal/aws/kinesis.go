@@ -204,12 +204,16 @@ func (s *KinesisScanner) describeStream(ctx context.Context, name string) (strea
 	}, nil
 }
 
+// maxTagPages caps tag-pagination loops. AWS resources carry at most 50 tags,
+// so this is generous headroom against a misbehaving HasMoreTags response.
+const maxTagPages = 10
+
 // fetchStreamTags fetches all tags for a Kinesis data stream, paginating via
 // ExclusiveStartTagKey (no bulk/batched tag API exists for Kinesis streams).
 func (s *KinesisScanner) fetchStreamTags(ctx context.Context, name string) (map[string]string, error) {
 	tags := make(map[string]string)
 	var startKey *string
-	for {
+	for page := 0; page < maxTagPages; page++ {
 		out, err := s.client.ListTagsForStream(ctx, &kinesis.ListTagsForStreamInput{
 			StreamName:           &name,
 			ExclusiveStartTagKey: startKey,
@@ -337,7 +341,7 @@ func (s *FirehoseScanner) listDeliveryStreams(ctx context.Context) ([]string, er
 func (s *FirehoseScanner) fetchDeliveryStreamTags(ctx context.Context, name string) (map[string]string, error) {
 	tags := make(map[string]string)
 	var startKey *string
-	for {
+	for page := 0; page < maxTagPages; page++ {
 		out, err := s.client.ListTagsForDeliveryStream(ctx, &firehose.ListTagsForDeliveryStreamInput{
 			DeliveryStreamName:   &name,
 			ExclusiveStartTagKey: startKey,

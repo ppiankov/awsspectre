@@ -32,7 +32,7 @@ var k8sManagedLBTagKeys = []string{
 	"kubernetes.io/service-name",
 }
 
-func k8sManagedLBCluster(tags map[string]string) (managed bool) {
+func isK8sManagedLB(tags map[string]string) (managed bool) {
 	for _, key := range k8sManagedLBTagKeys {
 		if _, ok := tags[key]; ok {
 			return true
@@ -120,7 +120,7 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			"vpc_id":  deref(lb.VpcId),
 		}
 
-		if k8sManagedLBCluster(lbTags) {
+		if isK8sManagedLB(lbTags) {
 			// WO-220: controller-managed LBs must be removed via their owning
 			// Kubernetes Service/Ingress, not deleted directly — down-rank and
 			// correct the guidance instead of suppressing the finding.
