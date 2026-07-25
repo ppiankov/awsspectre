@@ -15,6 +15,30 @@ type ELBAPI interface {
 	DescribeLoadBalancers(ctx context.Context, input *elasticloadbalancingv2.DescribeLoadBalancersInput, opts ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeLoadBalancersOutput, error)
 	DescribeTargetGroups(ctx context.Context, input *elasticloadbalancingv2.DescribeTargetGroupsInput, opts ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetGroupsOutput, error)
 	DescribeTargetHealth(ctx context.Context, input *elasticloadbalancingv2.DescribeTargetHealthInput, opts ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetHealthOutput, error)
+	DescribeTags(ctx context.Context, input *elasticloadbalancingv2.DescribeTagsInput, opts ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTagsOutput, error)
+}
+
+// elbDescribeTagsBatchSize is the ELBv2 DescribeTags API's max ResourceArns per call.
+const elbDescribeTagsBatchSize = 20
+
+// k8sManagedLBTagKeys are tags the AWS Load Balancer Controller (or the legacy
+// in-tree cloud provider) sets on ELBv2 resources it owns. Their presence means
+// the LB must be removed via its owning Kubernetes Service/Ingress, not deleted
+// directly — WO-220.
+var k8sManagedLBTagKeys = []string{
+	"elbv2.k8s.aws/cluster",
+	"service.k8s.aws/stack",
+	"ingress.k8s.aws/stack",
+	"kubernetes.io/service-name",
+}
+
+func isK8sManagedLB(tags map[string]string) (managed bool) {
+	for _, key := range k8sManagedLBTagKeys {
+		if _, ok := tags[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ELBScanner detects idle ALBs and NLBs.
@@ -46,11 +70,24 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		return result, nil
 	}
 
+	arns := make([]string, 0, len(lbs))
+	for _, lb := range lbs {
+		if arn := deref(lb.LoadBalancerArn); arn != "" {
+			arns = append(arns, arn)
+		}
+	}
+	tagsByARN, err := s.fetchTags(ctx, arns)
+	if err != nil {
+		slog.Warn("Failed to fetch load balancer tags", "region", s.region, "error", err)
+		tagsByARN = make(map[string]map[string]string)
+	}
+
 	for _, lb := range lbs {
 		lbARN := deref(lb.LoadBalancerArn)
 		lbName := deref(lb.LoadBalancerName)
+		lbTags := tagsByARN[lbARN]
 
-		if cfg.Exclude.ShouldExclude(lbARN, nil) {
+		if cfg.Exclude.ShouldExclude(lbARN, lbTags) {
 			continue
 		}
 
@@ -75,26 +112,61 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 
 		// LB is idle: zero healthy targets or zero requests
 		findingID, resourceType, cost := s.classifyLB(lb)
+		severity := SeverityHigh
 		msg := fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %d days", lbName, cfg.IdleDays)
+		meta := map[string]any{
+			"lb_type": string(lb.Type),
+			"scheme":  string(lb.Scheme),
+			"vpc_id":  deref(lb.VpcId),
+		}
+
+		if isK8sManagedLB(lbTags) {
+			// WO-220: controller-managed LBs must be removed via their owning
+			// Kubernetes Service/Ingress, not deleted directly — down-rank and
+			// correct the guidance instead of suppressing the finding.
+			severity = SeverityMedium
+			msg = fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %d days — managed by a Kubernetes Service/Ingress controller; remove that resource instead of deleting the LB directly", lbName, cfg.IdleDays)
+			meta["controller_managed"] = true
+		}
 
 		result.Findings = append(result.Findings, Finding{
 			ID:                    findingID,
-			Severity:              SeverityHigh,
+			Severity:              severity,
 			ResourceType:          resourceType,
 			ResourceID:            lbARN,
 			ResourceName:          lbName,
 			Region:                s.region,
 			Message:               msg,
 			EstimatedMonthlyWaste: cost,
-			Metadata: map[string]any{
-				"lb_type": string(lb.Type),
-				"scheme":  string(lb.Scheme),
-				"vpc_id":  deref(lb.VpcId),
-			},
+			Metadata:              meta,
 		})
 	}
 
 	return result, nil
+}
+
+// fetchTags fetches ELBv2 resource tags in batches of elbDescribeTagsBatchSize
+// (the DescribeTags API's per-call ResourceArns limit).
+func (s *ELBScanner) fetchTags(ctx context.Context, arns []string) (map[string]map[string]string, error) {
+	tags := make(map[string]map[string]string, len(arns))
+	for i := 0; i < len(arns); i += elbDescribeTagsBatchSize {
+		end := i + elbDescribeTagsBatchSize
+		if end > len(arns) {
+			end = len(arns)
+		}
+		out, err := s.client.DescribeTags(ctx, &elasticloadbalancingv2.DescribeTagsInput{ResourceArns: arns[i:end]})
+		if err != nil {
+			return nil, err
+		}
+		for _, td := range out.TagDescriptions {
+			m := make(map[string]string, len(td.Tags))
+			for _, t := range td.Tags {
+				m[deref(t.Key)] = deref(t.Value)
+			}
+			tags[deref(td.ResourceArn)] = m
+		}
+	}
+	return tags, nil
 }
 
 func (s *ELBScanner) listLoadBalancers(ctx context.Context) ([]elbtypes.LoadBalancer, error) {

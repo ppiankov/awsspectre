@@ -259,12 +259,7 @@ func (s *EC2Scanner) describeVolumesByIDs(ctx context.Context, volumeIDs []strin
 }
 
 func instanceName(inst ec2types.Instance) string {
-	for _, tag := range inst.Tags {
-		if deref(tag.Key) == "Name" {
-			return deref(tag.Value)
-		}
-	}
-	return ""
+	return tagValue(inst.Tags, "Name")
 }
 
 func stoppedSince(inst ec2types.Instance) time.Time {

@@ -15,6 +15,11 @@ import (
 type mockSQSClient struct {
 	queueURLs  []string
 	attributes map[string]map[string]string // queueURL → attributes
+	tags       map[string]map[string]string // queueURL → tags
+}
+
+func (m *mockSQSClient) ListQueueTags(_ context.Context, input *sqs.ListQueueTagsInput, _ ...func(*sqs.Options)) (*sqs.ListQueueTagsOutput, error) {
+	return &sqs.ListQueueTagsOutput{Tags: m.tags[*input.QueueUrl]}, nil
 }
 
 func (m *mockSQSClient) ListQueues(_ context.Context, _ *sqs.ListQueuesInput, _ ...func(*sqs.Options)) (*sqs.ListQueuesOutput, error) {
@@ -196,6 +201,32 @@ func TestSQSScanner_Excluded(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings for excluded queue, got %d", len(result.Findings))
+	}
+}
+
+func TestSQSScanner_ExcludedByTag(t *testing.T) {
+	url := "https://sqs.us-east-1.amazonaws.com/123/tagged-queue"
+	mock := &mockSQSClient{
+		queueURLs: []string{url},
+		attributes: map[string]map[string]string{
+			url: {"QueueArn": "arn:aws:sqs:us-east-1:123:tagged-queue"},
+		},
+		tags: map[string]map[string]string{
+			url: {"Team": "payments"},
+		},
+	}
+
+	scanner := NewSQSScanner(mock, zeroMetricsFetcher(), "us-east-1")
+	cfg := ScanConfig{
+		IdleDays: 7,
+		Exclude:  ExcludeConfig{Tags: map[string]string{"Team": "payments"}},
+	}
+	result, err := scanner.Scan(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for tag-excluded queue, got %d", len(result.Findings))
 	}
 }
 

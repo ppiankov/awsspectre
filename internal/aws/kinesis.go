@@ -15,6 +15,7 @@ import (
 type KinesisAPI interface {
 	ListStreams(ctx context.Context, input *kinesis.ListStreamsInput, opts ...func(*kinesis.Options)) (*kinesis.ListStreamsOutput, error)
 	DescribeStreamSummary(ctx context.Context, input *kinesis.DescribeStreamSummaryInput, opts ...func(*kinesis.Options)) (*kinesis.DescribeStreamSummaryOutput, error)
+	ListTagsForStream(ctx context.Context, input *kinesis.ListTagsForStreamInput, opts ...func(*kinesis.Options)) (*kinesis.ListTagsForStreamOutput, error)
 }
 
 // KinesisScanner detects idle and over-provisioned Kinesis data streams.
@@ -58,7 +59,12 @@ func (s *KinesisScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult,
 	var streams []streamInfo
 	var names []string
 	for _, name := range streamNames {
-		if cfg.Exclude.ShouldExclude(name, nil) {
+		tags, err := s.fetchStreamTags(ctx, name)
+		if err != nil {
+			slog.Warn("Failed to fetch Kinesis stream tags", "stream", name, "error", err)
+			tags = nil
+		}
+		if cfg.Exclude.ShouldExclude(name, tags) {
 			continue
 		}
 
@@ -198,9 +204,39 @@ func (s *KinesisScanner) describeStream(ctx context.Context, name string) (strea
 	}, nil
 }
 
+// maxTagPages caps tag-pagination loops. AWS resources carry at most 50 tags,
+// so this is generous headroom against a misbehaving HasMoreTags response.
+const maxTagPages = 10
+
+// fetchStreamTags fetches all tags for a Kinesis data stream, paginating via
+// ExclusiveStartTagKey (no bulk/batched tag API exists for Kinesis streams).
+func (s *KinesisScanner) fetchStreamTags(ctx context.Context, name string) (map[string]string, error) {
+	tags := make(map[string]string)
+	var startKey *string
+	for page := 0; page < maxTagPages; page++ {
+		out, err := s.client.ListTagsForStream(ctx, &kinesis.ListTagsForStreamInput{
+			StreamName:           &name,
+			ExclusiveStartTagKey: startKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range out.Tags {
+			tags[deref(t.Key)] = deref(t.Value)
+		}
+		if out.HasMoreTags == nil || !*out.HasMoreTags || len(out.Tags) == 0 {
+			break
+		}
+		last := out.Tags[len(out.Tags)-1]
+		startKey = last.Key
+	}
+	return tags, nil
+}
+
 // FirehoseAPI is the minimal interface for Firehose operations.
 type FirehoseAPI interface {
 	ListDeliveryStreams(ctx context.Context, input *firehose.ListDeliveryStreamsInput, opts ...func(*firehose.Options)) (*firehose.ListDeliveryStreamsOutput, error)
+	ListTagsForDeliveryStream(ctx context.Context, input *firehose.ListTagsForDeliveryStreamInput, opts ...func(*firehose.Options)) (*firehose.ListTagsForDeliveryStreamOutput, error)
 }
 
 // FirehoseScanner detects idle Firehose delivery streams.
@@ -234,7 +270,12 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 
 	var names []string
 	for _, name := range streamNames {
-		if cfg.Exclude.ShouldExclude(name, nil) {
+		tags, err := s.fetchDeliveryStreamTags(ctx, name)
+		if err != nil {
+			slog.Warn("Failed to fetch Firehose delivery stream tags", "stream", name, "error", err)
+			tags = nil
+		}
+		if cfg.Exclude.ShouldExclude(name, tags) {
 			continue
 		}
 		names = append(names, name)
@@ -293,4 +334,29 @@ func (s *FirehoseScanner) listDeliveryStreams(ctx context.Context) ([]string, er
 		startName = &last
 	}
 	return names, nil
+}
+
+// fetchDeliveryStreamTags fetches all tags for a Firehose delivery stream,
+// paginating via ExclusiveStartTagKey (no bulk/batched tag API exists).
+func (s *FirehoseScanner) fetchDeliveryStreamTags(ctx context.Context, name string) (map[string]string, error) {
+	tags := make(map[string]string)
+	var startKey *string
+	for page := 0; page < maxTagPages; page++ {
+		out, err := s.client.ListTagsForDeliveryStream(ctx, &firehose.ListTagsForDeliveryStreamInput{
+			DeliveryStreamName:   &name,
+			ExclusiveStartTagKey: startKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range out.Tags {
+			tags[deref(t.Key)] = deref(t.Value)
+		}
+		if out.HasMoreTags == nil || !*out.HasMoreTags || len(out.Tags) == 0 {
+			break
+		}
+		last := out.Tags[len(out.Tags)-1]
+		startKey = last.Key
+	}
+	return tags, nil
 }

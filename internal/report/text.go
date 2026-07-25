@@ -6,7 +6,23 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	awstype "github.com/ppiankov/awsspectre/internal/aws"
 )
+
+// severityOrder orders findings high < medium < low; unknown severities sort last.
+var severityOrder = map[awstype.Severity]int{
+	awstype.SeverityHigh:   0,
+	awstype.SeverityMedium: 1,
+	awstype.SeverityLow:    2,
+}
+
+func severityRank(s awstype.Severity) int {
+	if rank, ok := severityOrder[s]; ok {
+		return rank
+	}
+	return len(severityOrder)
+}
 
 // Generate writes human-readable terminal output.
 func (r *TextReporter) Generate(data Data) error {
@@ -27,11 +43,17 @@ func (r *TextReporter) Generate(data Data) error {
 	w.printf("Found %d idle resources with estimated monthly waste of $%.2f\n\n",
 		data.Summary.TotalFindings, data.Summary.TotalMonthlyWaste)
 
+	findings := make([]awstype.Finding, len(data.Findings))
+	copy(findings, data.Findings)
+	sort.SliceStable(findings, func(i, j int) bool {
+		return severityRank(findings[i].Severity) < severityRank(findings[j].Severity)
+	})
+
 	tw2 := &errWriter{w: tw}
 	tw2.printf("SEVERITY\tTYPE\tRESOURCE\tREGION\tWASTE/MO\tMESSAGE\n")
 	tw2.printf("--------\t----\t--------\t------\t--------\t-------\n")
 
-	for _, f := range data.Findings {
+	for _, f := range findings {
 		name := f.ResourceID
 		if f.ResourceName != "" {
 			name = f.ResourceName

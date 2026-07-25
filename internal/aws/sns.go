@@ -14,6 +14,7 @@ import (
 type SNSAPI interface {
 	ListTopics(ctx context.Context, input *sns.ListTopicsInput, opts ...func(*sns.Options)) (*sns.ListTopicsOutput, error)
 	ListSubscriptionsByTopic(ctx context.Context, input *sns.ListSubscriptionsByTopicInput, opts ...func(*sns.Options)) (*sns.ListSubscriptionsByTopicOutput, error)
+	ListTagsForResource(ctx context.Context, input *sns.ListTagsForResourceInput, opts ...func(*sns.Options)) (*sns.ListTagsForResourceOutput, error)
 }
 
 // SNSScanner detects SNS topics with no subscribers or zero published messages.
@@ -59,7 +60,12 @@ func (s *SNSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		arn := deref(topic.TopicArn)
 		name := topicNameFromARN(arn)
 
-		if cfg.Exclude.ShouldExclude(name, nil) {
+		tags, err := s.fetchTags(ctx, arn)
+		if err != nil {
+			slog.Warn("Failed to fetch SNS topic tags", "topic", name, "error", err)
+			tags = nil
+		}
+		if cfg.Exclude.ShouldExclude(name, tags) {
 			continue
 		}
 
@@ -165,6 +171,20 @@ func (s *SNSScanner) countSubscriptions(ctx context.Context, topicARN string) (i
 		input.NextToken = out.NextToken
 	}
 	return count, nil
+}
+
+// fetchTags fetches all tags for an SNS topic (ListTagsForResource has no
+// pagination and no bulk/batched variant).
+func (s *SNSScanner) fetchTags(ctx context.Context, topicARN string) (map[string]string, error) {
+	out, err := s.client.ListTagsForResource(ctx, &sns.ListTagsForResourceInput{ResourceArn: &topicARN})
+	if err != nil {
+		return nil, err
+	}
+	tags := make(map[string]string, len(out.Tags))
+	for _, t := range out.Tags {
+		tags[deref(t.Key)] = deref(t.Value)
+	}
+	return tags, nil
 }
 
 // topicNameFromARN extracts the topic name from an SNS topic ARN.

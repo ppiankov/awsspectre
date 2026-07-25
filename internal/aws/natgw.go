@@ -161,10 +161,5 @@ func (s *NATGatewayScanner) listNATGateways(ctx context.Context) ([]ec2types.Nat
 }
 
 func natGatewayName(gw ec2types.NatGateway) string {
-	for _, tag := range gw.Tags {
-		if deref(tag.Key) == "Name" {
-			return deref(tag.Value)
-		}
-	}
-	return ""
+	return tagValue(gw.Tags, "Name")
 }

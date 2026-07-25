@@ -8,8 +8,11 @@ on:
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -25,11 +28,19 @@ jobs:
       - name: Build binary
         run: make build
 
-      - name: Upload binary artifact
+      - name: Upload binary artifact (Linux)
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: awsspectre-linux-amd64
           path: bin/awsspectre
+
+      - name: Upload binary artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: awsspectre-windows-amd64
+          path: bin/awsspectre.exe
 
   test:
     name: Test

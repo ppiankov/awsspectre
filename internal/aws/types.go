@@ -126,6 +126,16 @@ func (e ExcludeConfig) ShouldExclude(resourceID string, tags map[string]string) 
 	return false
 }
 
+// tagValue returns the value of the first tag matching key, or "" if absent.
+func tagValue(tags []ec2types.Tag, key string) string {
+	for _, t := range tags {
+		if deref(t.Key) == key {
+			return deref(t.Value)
+		}
+	}
+	return ""
+}
+
 func ec2TagsToMap(tags []ec2types.Tag) map[string]string {
 	if len(tags) == 0 {
 		return nil

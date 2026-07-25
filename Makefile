@@ -3,6 +3,7 @@
 BINARY_NAME := awsspectre
 BUILD_DIR   := ./bin
 MAIN_PATH   := ./cmd/awsspectre
+EXE_EXT     := $(shell go env GOEXE)
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 VERSION_NUM  = $(patsubst v%,%,$(VERSION))
 COMMIT      ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -17,7 +18,7 @@ help:
 ## build: Build the binary
 build:
 	@mkdir -p $(BUILD_DIR)
-	go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
+	go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(EXE_EXT) $(MAIN_PATH)
 
 ## test: Run tests with race detection
 test:
