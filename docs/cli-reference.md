@@ -174,7 +174,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, snapshots, and security groups | Complete |
+| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, snapshots, and security groups | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |
