@@ -116,6 +116,21 @@ func TestMonthlySnapshotCost(t *testing.T) {
 	}
 }
 
+func TestMonthlyCloudWatchLogsStorageCost(t *testing.T) {
+	// 100 GiB at $0.03/GiB = $3.00
+	cost := MonthlyCloudWatchLogsStorageCost(100*1024*1024*1024, "us-east-1")
+	if cost != 3.0 {
+		t.Fatalf("expected $3.00, got $%.2f", cost)
+	}
+}
+
+func TestMonthlyCloudWatchLogsStorageCost_Zero(t *testing.T) {
+	cost := MonthlyCloudWatchLogsStorageCost(0, "us-east-1")
+	if cost != 0 {
+		t.Fatalf("expected $0.00, got $%.2f", cost)
+	}
+}
+
 func TestRDSInstanceMemoryBytes_Known(t *testing.T) {
 	mem, ok := RDSInstanceMemoryBytes("db.r5.large")
 	if !ok {

@@ -3,10 +3,11 @@ module github.com/ppiankov/awsspectre
 go 1.24.0
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.42.1
+	github.com/aws/aws-sdk-go-v2 v1.43.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.10
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.65.4
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.54.1
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.80.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.290.1
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.7
 	github.com/aws/aws-sdk-go-v2/service/firehose v1.42.10
@@ -21,11 +22,11 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.5 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.10 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.18 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.30 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.30 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.31 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.31 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.18 // indirect

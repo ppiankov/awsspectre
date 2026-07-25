@@ -267,6 +267,8 @@ func TestSARIFReporter_DefaultHygieneRulesDeclared(t *testing.T) {
 		{id: awstype.FindingSQSDLQOrphaned, severity: awstype.SeverityHigh, resourceType: "sqs", expectedLevel: "error"},
 		{id: awstype.FindingSNSNoSubscribers, severity: awstype.SeverityMedium, resourceType: "sns", expectedLevel: "warning"},
 		{id: awstype.FindingSNSIdle, severity: awstype.SeverityLow, resourceType: "sns", expectedLevel: "note"},
+		// WO-221: CloudWatch Logs retention finding is always Hygiene-visible.
+		{id: awstype.FindingLogGroupNoRetention, severity: awstype.SeverityMedium, resourceType: "log_group", expectedLevel: "warning"},
 	}
 	data.Findings = make([]awstype.Finding, 0, len(defaultHygieneRules))
 	for _, rule := range defaultHygieneRules {

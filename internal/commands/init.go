@@ -110,6 +110,7 @@ timeout: 10m
 `
 
 // WO-199: generated IAM policy must cover CloudFront distribution inventory.
+// WO-221: also covers CloudWatch Logs retention/tag inventory.
 const sampleIAMPolicy = `{
   "Version": "2012-10-17",
   "Statement": [
@@ -141,6 +142,8 @@ const sampleIAMPolicy = `{
         "sns:ListSubscriptionsByTopic",
         "cloudfront:ListDistributions",
         "cloudwatch:GetMetricData",
+        "logs:DescribeLogGroups",
+        "logs:ListTagsForResource",
         "sts:GetCallerIdentity"
       ],
       "Resource": "*"

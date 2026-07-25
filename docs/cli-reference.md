@@ -95,6 +95,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `firehose:ListDeliveryStreams`
 - `sqs:ListQueues`, `sqs:GetQueueAttributes`
 - `sns:ListTopics`, `sns:ListSubscriptionsByTopic`
+- `logs:DescribeLogGroups`, `logs:ListTagsForResource`
 - `cloudfront:ListDistributions`
 - `cloudwatch:GetMetricData`
 
@@ -147,7 +148,8 @@ awsspectre/
 │   │   ├── lambda.go              # Lambda: zero invocations
 │   │   ├── kinesis.go             # Kinesis: idle streams, over-provisioned shards, idle Firehose
 │   │   ├── sqs.go                 # SQS: idle queues, no-consumer, orphaned DLQs
-│   │   └── sns.go                 # SNS: no subscribers, idle topics
+│   │   ├── sns.go                 # SNS: no subscribers, idle topics
+│   │   └── logs.go                # CloudWatch Logs: no retention policy
 │   ├── pricing/                   # Embedded on-demand pricing (go:embed)
 │   ├── analyzer/                  # Filter by min cost, compute summary
 │   └── report/                    # Text, JSON, SARIF, SpectreHub reporters
@@ -172,7 +174,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, snapshots, and security groups | Complete |
+| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, snapshots, and security groups | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |

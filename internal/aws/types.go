@@ -35,6 +35,7 @@ const (
 	ResourceSQS           ResourceType = "sqs"
 	ResourceSNS           ResourceType = "sns"
 	ResourceCloudFront    ResourceType = "cloudfront" // WO-189: global CloudFront hygiene scanner.
+	ResourceLogGroup      ResourceType = "log_group"  // WO-221: CloudWatch Logs retention scanner.
 )
 
 // FindingID identifies the type of waste detected.
@@ -61,8 +62,9 @@ const (
 	FindingSQSNoConsumer          FindingID = "SQS_NO_CONSUMER"
 	FindingSNSNoSubscribers       FindingID = "SNS_NO_SUBSCRIBERS"
 	FindingSNSIdle                FindingID = "SNS_IDLE"
-	FindingCloudFrontDisabled     FindingID = "CLOUDFRONT_DISABLED" // WO-189: disabled distribution hygiene signal.
-	FindingCloudFrontIdle         FindingID = "CLOUDFRONT_IDLE"     // WO-189: zero-request distribution hygiene signal.
+	FindingCloudFrontDisabled     FindingID = "CLOUDFRONT_DISABLED"    // WO-189: disabled distribution hygiene signal.
+	FindingCloudFrontIdle         FindingID = "CLOUDFRONT_IDLE"        // WO-189: zero-request distribution hygiene signal.
+	FindingLogGroupNoRetention    FindingID = "LOG_GROUP_NO_RETENTION" // WO-221: unbounded log-retention risk.
 )
 
 // Finding represents a single waste detection result.
