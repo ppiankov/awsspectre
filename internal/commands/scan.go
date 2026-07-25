@@ -65,7 +65,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Apply config file defaults where flags were not explicitly set
-	applyConfigDefaults()
+	applyConfigDefaults(cmd)
 
 	// Resolve profile from flag or config
 	prof := profile
@@ -197,30 +197,40 @@ func resolveRegions(ctx context.Context, client *aws.Client) ([]string, error) {
 	return []string{region}, nil
 }
 
-func applyConfigDefaults() {
-	if scanFlags.format == "text" && cfg.Format != "" {
+// applyConfigDefaults fills in scanFlags from the config file, but only for
+// flags the user did not explicitly pass — an explicit flag always wins over
+// config, regardless of whether its value happens to equal the flag default.
+func applyConfigDefaults(cmd *cobra.Command) {
+	changed := cmd.Flags().Changed
+
+	if !changed("format") && cfg.Format != "" {
 		scanFlags.format = cfg.Format
 	}
-	if scanFlags.idleDays == 7 && cfg.IdleDays > 0 {
+	if !changed("idle-days") && cfg.IdleDays > 0 {
 		scanFlags.idleDays = cfg.IdleDays
 	}
-	if scanFlags.staleDays == 90 && cfg.StaleDays > 0 {
+	if !changed("stale-days") && cfg.StaleDays > 0 {
 		scanFlags.staleDays = cfg.StaleDays
 	}
-	if scanFlags.minMonthlyCost == 1.0 && cfg.MinMonthlyCost > 0 {
+	if !changed("min-monthly-cost") && cfg.MinMonthlyCost > 0 {
 		scanFlags.minMonthlyCost = cfg.MinMonthlyCost
 	}
-	if scanFlags.idleCPUThreshold == 0 && cfg.IdleCPUThreshold > 0 {
+	if !changed("idle-cpu-threshold") && cfg.IdleCPUThreshold > 0 {
 		scanFlags.idleCPUThreshold = cfg.IdleCPUThreshold
 	}
-	if scanFlags.highMemoryThreshold == 0 && cfg.HighMemoryThreshold > 0 {
+	if !changed("high-memory-threshold") && cfg.HighMemoryThreshold > 0 {
 		scanFlags.highMemoryThreshold = cfg.HighMemoryThreshold
 	}
-	if scanFlags.stoppedThresholdDays == 0 && cfg.StoppedThresholdDays > 0 {
+	if !changed("stopped-threshold-days") && cfg.StoppedThresholdDays > 0 {
 		scanFlags.stoppedThresholdDays = cfg.StoppedThresholdDays
 	}
-	if scanFlags.natGWLowTrafficGB == 0 && cfg.NATGWLowTrafficGB > 0 {
+	if !changed("nat-gw-low-traffic-gb") && cfg.NATGWLowTrafficGB > 0 {
 		scanFlags.natGWLowTrafficGB = cfg.NATGWLowTrafficGB
+	}
+	if !changed("timeout") {
+		if d := cfg.TimeoutDuration(); d > 0 {
+			scanFlags.timeout = d
+		}
 	}
 }
 
