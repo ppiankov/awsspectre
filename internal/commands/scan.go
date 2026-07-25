@@ -58,14 +58,17 @@ func init() {
 
 func runScan(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
+
+	// Apply config file defaults where flags were not explicitly set. Must
+	// run before the timeout context is built below — otherwise a
+	// config-only `timeout:` (no --timeout flag) never reaches the deadline.
+	applyConfigDefaults(cmd)
+
 	if scanFlags.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, scanFlags.timeout)
 		defer cancel()
 	}
-
-	// Apply config file defaults where flags were not explicitly set
-	applyConfigDefaults(cmd)
 
 	// Resolve profile from flag or config
 	prof := profile
