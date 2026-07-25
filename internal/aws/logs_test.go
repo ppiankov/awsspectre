@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -11,11 +12,29 @@ import (
 
 type mockLogsClient struct {
 	groups []logstypes.LogGroup
-	tags   map[string]map[string]string // log group ARN -> tags
+	// pages, when set, makes DescribeLogGroups paginate across multiple calls
+	// using NextToken instead of returning `groups` in a single page.
+	pages         [][]logstypes.LogGroup
+	describeCalls int
+	tags          map[string]map[string]string // log group ARN -> tags
 }
 
-func (m *mockLogsClient) DescribeLogGroups(_ context.Context, _ *cloudwatchlogs.DescribeLogGroupsInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.DescribeLogGroupsOutput, error) {
-	return &cloudwatchlogs.DescribeLogGroupsOutput{LogGroups: m.groups}, nil
+func (m *mockLogsClient) DescribeLogGroups(_ context.Context, input *cloudwatchlogs.DescribeLogGroupsInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.DescribeLogGroupsOutput, error) {
+	m.describeCalls++
+	if m.pages == nil {
+		return &cloudwatchlogs.DescribeLogGroupsOutput{LogGroups: m.groups}, nil
+	}
+
+	idx := 0
+	if input.NextToken != nil {
+		idx, _ = strconv.Atoi(*input.NextToken)
+	}
+	out := &cloudwatchlogs.DescribeLogGroupsOutput{LogGroups: m.pages[idx]}
+	if idx+1 < len(m.pages) {
+		next := strconv.Itoa(idx + 1)
+		out.NextToken = &next
+	}
+	return out, nil
 }
 
 func (m *mockLogsClient) ListTagsForResource(_ context.Context, input *cloudwatchlogs.ListTagsForResourceInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.ListTagsForResourceOutput, error) {
@@ -153,6 +172,30 @@ func TestLogsScanner_ExcludedByTag(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings for tag-excluded log group, got %d", len(result.Findings))
+	}
+}
+
+func TestLogsScanner_PaginatesAcrossMultiplePages(t *testing.T) {
+	mock := &mockLogsClient{
+		pages: [][]logstypes.LogGroup{
+			{{LogGroupName: awssdk.String("/aws/lambda/page1-func")}},
+			{{LogGroupName: awssdk.String("/aws/lambda/page2-func")}},
+		},
+	}
+	scanner := NewLogsScanner(mock, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.describeCalls != 2 {
+		t.Fatalf("expected 2 DescribeLogGroups calls across pages, got %d", mock.describeCalls)
+	}
+	if result.ResourcesScanned != 2 {
+		t.Fatalf("expected 2 log groups scanned across both pages, got %d", result.ResourcesScanned)
+	}
+	if len(result.Findings) != 2 {
+		t.Fatalf("expected findings from both pages, got %d", len(result.Findings))
 	}
 }
 
