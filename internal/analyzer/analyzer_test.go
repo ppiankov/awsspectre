@@ -144,6 +144,32 @@ func TestAnalyze_DoesNotExemptKinesisIdleByID(t *testing.T) {
 	}
 }
 
+func TestAnalyze_HygieneFindingSurvivesMinCostEvenWithNonZeroWaste(t *testing.T) {
+	// Regression: a WO-221 dogfood run found that a Hygiene finding with a
+	// small but non-zero EstimatedMonthlyWaste (below MinMonthlyCost) was
+	// silently dropped because the scanner only set Hygiene when cost==0.
+	// Hygiene must exempt a finding from the cost filter regardless of the
+	// waste amount — visibility can't depend on today's accumulated cost for
+	// a finding about unbounded future growth.
+	result := &awstype.ScanResult{
+		Findings: []awstype.Finding{
+			{
+				ID:                    awstype.FindingLogGroupNoRetention,
+				Severity:              awstype.SeverityMedium,
+				ResourceType:          awstype.ResourceLogGroup,
+				EstimatedMonthlyWaste: 0.02, // well under the default $1.0 threshold
+				Hygiene:               true,
+			},
+		},
+	}
+
+	analysis := Analyze(result, AnalyzerConfig{MinMonthlyCost: 1.0})
+
+	if len(analysis.Findings) != 1 {
+		t.Fatalf("expected the low-cost hygiene finding to survive the min-cost filter, got %#v", analysis.Findings)
+	}
+}
+
 func TestAnalyze_SummaryAggregation(t *testing.T) {
 	result := &awstype.ScanResult{
 		ResourcesScanned: 100,

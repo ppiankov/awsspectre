@@ -141,6 +141,8 @@ const sampleIAMPolicy = `{
         "sns:ListSubscriptionsByTopic",
         "cloudfront:ListDistributions",
         "cloudwatch:GetMetricData",
+        "logs:DescribeLogGroups",
+        "logs:ListTagsForResource",
         "sts:GetCallerIdentity"
       ],
       "Resource": "*"

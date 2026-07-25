@@ -169,3 +169,14 @@ func MonthlySnapshotCost(sizeGiB int, region string) float64 {
 	}
 	return perGiB * float64(sizeGiB)
 }
+
+// MonthlyCloudWatchLogsStorageCost returns the estimated monthly storage cost
+// for a CloudWatch Logs log group given its currently stored bytes.
+func MonthlyCloudWatchLogsStorageCost(storedBytes int64, region string) float64 {
+	perGiB, ok := lookupHourly("cloudwatch_logs", "default", region)
+	if !ok {
+		return 0
+	}
+	gib := float64(storedBytes) / bytesPerGiB
+	return perGiB * gib
+}

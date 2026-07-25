@@ -9,6 +9,7 @@ import (
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -232,6 +233,7 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 	firehoseClient := firehose.NewFromConfig(cfg)
 	sqsClient := sqs.NewFromConfig(cfg)
 	snsClient := sns.NewFromConfig(cfg)
+	logsClient := cloudwatchlogs.NewFromConfig(cfg)
 
 	return []ResourceScanner{
 		NewEC2Scanner(ec2Client, metrics, region),
@@ -247,6 +249,7 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 		NewFirehoseScanner(firehoseClient, metrics, region),
 		NewSQSScanner(sqsClient, metrics, region),
 		NewSNSScanner(snsClient, metrics, region),
+		NewLogsScanner(logsClient, region),
 	}
 }
 
