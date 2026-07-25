@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +16,19 @@ type mockELBClient struct {
 	lbs           []elbtypes.LoadBalancer
 	targetGroups  []elbtypes.TargetGroup
 	targetHealths []elbtypes.TargetHealthDescription
+	tagsByARN     map[string][]elbtypes.Tag
+}
+
+func (m *mockELBClient) DescribeTags(_ context.Context, input *elasticloadbalancingv2.DescribeTagsInput, _ ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTagsOutput, error) {
+	descriptions := make([]elbtypes.TagDescription, 0, len(input.ResourceArns))
+	for _, arn := range input.ResourceArns {
+		arn := arn
+		descriptions = append(descriptions, elbtypes.TagDescription{
+			ResourceArn: &arn,
+			Tags:        m.tagsByARN[arn],
+		})
+	}
+	return &elasticloadbalancingv2.DescribeTagsOutput{TagDescriptions: descriptions}, nil
 }
 
 func (m *mockELBClient) DescribeLoadBalancers(_ context.Context, _ *elasticloadbalancingv2.DescribeLoadBalancersInput, _ ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeLoadBalancersOutput, error) {
@@ -209,6 +223,75 @@ func TestELBScanner_ExcludedLB(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings for excluded LB, got %d", len(result.Findings))
+	}
+}
+
+func TestELBScanner_ExcludedByTag(t *testing.T) {
+	arn := "arn:aws:elasticloadbalancing:us-east-1:123456:loadbalancer/app/tagged/abc123"
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String(arn),
+				LoadBalancerName: awssdk.String("tagged"),
+				Type:             elbtypes.LoadBalancerTypeEnumApplication,
+			},
+		},
+		tagsByARN: map[string][]elbtypes.Tag{
+			arn: {{Key: awssdk.String("Team"), Value: awssdk.String("payments")}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "us-east-1")
+
+	cfg := ScanConfig{
+		IdleDays: 7,
+		Exclude:  ExcludeConfig{Tags: map[string]string{"Team": "payments"}},
+	}
+	result, err := scanner.Scan(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for tag-excluded LB, got %d", len(result.Findings))
+	}
+}
+
+func TestELBScanner_KubernetesManagedLB_DownRanked(t *testing.T) {
+	arn := "arn:aws:elasticloadbalancing:us-east-1:123456:loadbalancer/net/k8s-svc/abc123"
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String(arn),
+				LoadBalancerName: awssdk.String("k8s-svc"),
+				Type:             elbtypes.LoadBalancerTypeEnumNetwork,
+			},
+		},
+		tagsByARN: map[string][]elbtypes.Tag{
+			arn: {{Key: awssdk.String("elbv2.k8s.aws/cluster"), Value: awssdk.String("prod")}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected down-ranked medium severity for k8s-managed LB, got %s", f.Severity)
+	}
+	if !strings.Contains(f.Message, "Kubernetes") {
+		t.Fatalf("expected message to mention Kubernetes-managed guidance, got %q", f.Message)
+	}
+	if f.Metadata["controller_managed"] != true {
+		t.Fatalf("expected controller_managed=true in metadata, got %v", f.Metadata["controller_managed"])
 	}
 }
 
