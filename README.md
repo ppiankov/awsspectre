@@ -4,11 +4,11 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/awsspectre)](https://goreportcard.com/report/github.com/ppiankov/awsspectre)
 [![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
 
-**awsspectre** — AWS resource waste auditor with cost estimates. Part of [SpectreHub](https://github.com/ppiankov/spectrehub).
+**awsspectre** — AWS resource waste auditor with cost estimates. Part of [SpectreHub](https://spectrehub.dev).
 
 ## What it is
 
-- Scans EC2, RDS, EBS, ELB, NAT Gateway, EIP, Lambda, Kinesis, SQS, SNS, CloudFront, snapshots, and security groups
+- Scans EC2, RDS, EBS, ELB, NAT Gateway, EIP, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, snapshots, and security groups
 - Detects idle, orphaned, and oversized resources using CloudWatch metrics
 - Estimates monthly waste in USD per finding
 - Supports tag-based exclusions and configurable thresholds
@@ -60,7 +60,7 @@ awsspectre scan --region us-east-1 --format json
 
 ## SpectreHub integration
 
-awsspectre feeds AWS resource waste findings into [SpectreHub](https://github.com/ppiankov/spectrehub) for unified visibility across your infrastructure.
+awsspectre feeds AWS resource waste findings into [SpectreHub](https://spectrehub.dev) for unified visibility across your infrastructure.
 
 ```sh
 spectrehub collect --tool awsspectre
