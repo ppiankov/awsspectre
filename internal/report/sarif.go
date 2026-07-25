@@ -157,5 +157,7 @@ func buildSARIFRules() []sarifRule {
 		// WO-198: CloudFront findings need declared rules for SARIF code-scanning consumers.
 		{ID: string(awstype.FindingCloudFrontDisabled), ShortDescription: sarifMessage{Text: "Disabled CloudFront distribution"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 		{ID: string(awstype.FindingCloudFrontIdle), ShortDescription: sarifMessage{Text: "Idle CloudFront distribution"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		// WO-221: CloudWatch Logs retention finding needs a declared SARIF rule.
+		{ID: string(awstype.FindingLogGroupNoRetention), ShortDescription: sarifMessage{Text: "CloudWatch Log Group with no retention policy"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 	}
 }
