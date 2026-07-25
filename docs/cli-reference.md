@@ -21,6 +21,8 @@ git clone https://github.com/ppiankov/awsspectre.git
 cd awsspectre && make build
 ```
 
+**Windows:** download the `awsspectre_<version>_windows_amd64.zip` (or `arm64`) asset from the [releases page](https://github.com/ppiankov/awsspectre/releases), extract it, and add the folder containing `awsspectre.exe` to your `PATH`.
+
 
 ## Usage
 
@@ -68,6 +70,7 @@ idle_days: 14
 stale_days: 180
 min_monthly_cost: 5.0
 format: json
+timeout: 20m
 exclude:
   resource_ids:
     - i-0abc123def456
@@ -77,7 +80,7 @@ exclude:
     - "awsspectre:ignore"
 ```
 
-Generate a sample config with `awsspectre init`.
+Generate a sample config with `awsspectre init`. An explicit CLI flag always takes precedence over its config-file counterpart, even when the flag's value happens to match its default.
 
 
 ## IAM permissions
@@ -165,7 +168,7 @@ Key design decisions:
 
 ## Project Status
 
-**Status: Beta** · **v0.1.0** · Pre-1.0
+**Status: Beta** · **v0.6.0** · Pre-1.0
 
 | Milestone | Status |
 |-----------|--------|
