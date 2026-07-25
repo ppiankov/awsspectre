@@ -36,7 +36,7 @@ func TestTextReporter_SortsBySeverityDescending(t *testing.T) {
 		positions[id] = idx
 	}
 
-	if !(positions["high-1"] < positions["medium-1"] && positions["medium-1"] < positions["low-1"]) {
+	if positions["high-1"] >= positions["medium-1"] || positions["medium-1"] >= positions["low-1"] {
 		t.Fatalf("expected high < medium < low ordering, got positions %v", positions)
 	}
 	// Stable within same severity: high-1 stays before high-2, low-1 before low-2.
