@@ -5,6 +5,20 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-25
+
+### Added
+
+- Windows CI build leg (`windows-latest`) and Windows quick-start install instructions in the README
+
+### Changed
+
+- `--exclude-tags` / config `exclude.tags` now apply to all 14 resource types — ELB, Kinesis, Firehose, Lambda, SNS, SQS, and CloudFront previously ignored tag-based exclusion silently
+- Text output now sorts findings by severity (high to low) instead of scan order
+- Load balancers managed by a Kubernetes controller (AWS Load Balancer Controller / EKS) are down-ranked from high to medium severity, with a message pointing at the owning Service/Ingress instead of the LB itself
+- Explicit CLI flags now always take precedence over `.awsspectre.yaml` values, even when the flag's value matches its default
+- `timeout` config key now applies to the scan timeout (previously parsed but never used)
+
 ## [0.5.0] - 2026-07-04
 
 ### Added
@@ -107,6 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.6.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.6.0
+[0.5.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.4.0
 [0.3.1]: https://github.com/ppiankov/awsspectre/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.3.0
