@@ -38,6 +38,12 @@ cd awsspectre
 make build
 ```
 
+### Windows
+
+Download the `awsspectre_<version>_windows_amd64.zip` (or `arm64`) asset from the
+[releases page](https://github.com/ppiankov/awsspectre/releases), extract it, and
+add the folder containing `awsspectre.exe` to your `PATH`.
+
 ### Usage
 
 ```sh
