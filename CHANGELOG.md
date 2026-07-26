@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-07-26
+
+### Fixed
+
+- `IDLE_ALB`/`IDLE_NLB` now also recognizes EKS's native/Auto Mode load-balancing tag convention (`service.eks.amazonaws.com/resource` + `eks:eks-cluster-name`) as Kubernetes-managed, alongside the existing AWS Load Balancer Controller convention. A live dogfood scan found 27% of one account's k8s-managed NLBs were misclassified as ordinary orphaned load balancers because they only used this second convention.
+
 ## [0.8.0] - 2026-07-26
 
 ### Added
@@ -138,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.1]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.1
 [0.8.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.6.0
