@@ -21,10 +21,11 @@ type ELBAPI interface {
 // elbDescribeTagsBatchSize is the ELBv2 DescribeTags API's max ResourceArns per call.
 const elbDescribeTagsBatchSize = 20
 
-// k8sManagedLBTagKeys are tags the AWS Load Balancer Controller (or the legacy
-// in-tree cloud provider) sets on ELBv2 resources it owns. Their presence means
-// the LB must be removed via its owning Kubernetes Service/Ingress, not deleted
-// directly — WO-220.
+// k8sManagedLBTagKeys are tags set by the community AWS Load Balancer
+// Controller add-on (or the legacy in-tree cloud provider) on ELBv2 resources
+// it fully owns. Any one of these alone is a sufficient signal — the LB must
+// be removed via its owning Kubernetes Service/Ingress, not deleted directly
+// — WO-220.
 var k8sManagedLBTagKeys = []string{
 	"elbv2.k8s.aws/cluster",
 	"service.k8s.aws/stack",
@@ -32,13 +33,28 @@ var k8sManagedLBTagKeys = []string{
 	"kubernetes.io/service-name",
 }
 
+// eksNativeLBResourceTagKey and eksNativeLBClusterTagKey together identify
+// EKS's native/Auto Mode load balancing integration — WO-234. Unlike the keys
+// above, eks:eks-cluster-name is NOT a safe standalone signal: the AWS Load
+// Balancer Controller also sets it on TargetGroupBinding resources to grant
+// itself IAM permission to register targets on a load balancer that was
+// provisioned entirely outside Kubernetes (e.g. by Terraform) and is not
+// owned by any Service/Ingress. Only the pair together reliably means "this
+// LB is an EKS-native-provisioned LoadBalancer resource".
+const (
+	eksNativeLBResourceTagKey = "service.eks.amazonaws.com/resource"
+	eksNativeLBClusterTagKey  = "eks:eks-cluster-name"
+)
+
 func isK8sManagedLB(tags map[string]string) (managed bool) {
 	for _, key := range k8sManagedLBTagKeys {
 		if _, ok := tags[key]; ok {
 			return true
 		}
 	}
-	return false
+	_, hasResource := tags[eksNativeLBResourceTagKey]
+	_, hasCluster := tags[eksNativeLBClusterTagKey]
+	return hasResource && hasCluster
 }
 
 // ELBScanner detects idle ALBs and NLBs.
