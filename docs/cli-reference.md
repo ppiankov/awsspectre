@@ -170,7 +170,7 @@ Key design decisions:
 
 ## Project Status
 
-**Status: Beta** · **v0.7.0** · Pre-1.0
+**Status: Beta** · **v0.8.0** · Pre-1.0
 
 | Milestone | Status |
 |-----------|--------|
@@ -197,3 +197,4 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **Security group references.** Only checks ENI attachment and in-rules cross-references. Does not trace through nested group chains.
 - **Snapshot AMI check.** Only validates against AMIs owned by the account. Shared AMIs referencing the snapshot will not be detected.
 - **Single metric thresholds.** CPU < 5% is a simple heuristic. Some workloads (batch, cron) may appear idle but are not.
+- **gp2/gp3 pricing coverage.** The gp2→gp3 migration savings estimate is only backed by curated rates for 4 regions; other regions fall back to us-east-1 pricing for both volume types, which may not reflect the real gp2/gp3 delta (or lack thereof) in every region.

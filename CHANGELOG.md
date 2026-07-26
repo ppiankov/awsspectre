@@ -5,6 +5,16 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-26
+
+### Added
+
+- EBS scanner: `GP2_MIGRATION_CANDIDATE` flags any modifiable (available/in-use) gp2 volume as a candidate for zero-downtime migration to gp3, which offers equivalent baseline performance at lower cost. Always visible regardless of `--min-monthly-cost` — per-volume savings are often small but compound across a fleet.
+
+### Changed
+
+- EBS scanner now lists all volumes (not just detached ones) to support the new gp2 check; detached-volume detection behavior is unchanged.
+
 ## [0.7.0] - 2026-07-25
 
 ### Added
@@ -128,6 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.5.0
