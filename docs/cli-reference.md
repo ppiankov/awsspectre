@@ -170,7 +170,7 @@ Key design decisions:
 
 ## Project Status
 
-**Status: Beta** · **v0.8.0** · Pre-1.0
+**Status: Beta** · **v0.8.1** · Pre-1.0
 
 | Milestone | Status |
 |-----------|--------|
