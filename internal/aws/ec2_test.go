@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,130 @@ func TestEC2Scanner_IdleInstance(t *testing.T) {
 	}
 	if f.EstimatedMonthlyWaste == 0 {
 		t.Fatal("expected non-zero waste estimate")
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true when LaunchTime is unset, got %v", f.Metadata["sufficient_history"])
+	}
+	if f.Message != "CPU 2.3% over 7 days" {
+		t.Fatalf("expected full-window message, got %q", f.Message)
+	}
+}
+
+func TestEC2Scanner_IdleInstance_LongRunning_FullWindowMessage(t *testing.T) {
+	launchTime := time.Now().UTC().Add(-30 * 24 * time.Hour) // 30 days ago
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-idle-longrun"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						LaunchTime:   &launchTime,
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-idle-longrun": 1.5}, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Message != "CPU 1.5% over 7 days" {
+		t.Fatalf("expected full-window message for a long-running instance, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true for a 30-day-old instance, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestEC2Scanner_IdleInstance_RecentlyStarted_InsufficientHistoryMessage(t *testing.T) {
+	// WO-236: a live dogfood scan found a GitLab CI runner instance started
+	// 11 minutes before the scan ran, with only 1 CloudWatch datapoint in the
+	// 7-day window, reported as "CPU 1.7% over 7 days" — an overclaim of data
+	// coverage. The finding must still surface (real evidence, not suppressed)
+	// but must not claim full-window confidence it doesn't have.
+	launchTime := time.Now().UTC().Add(-11 * time.Minute)
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-freshly-started"),
+						InstanceType: ec2types.InstanceTypeR5Xlarge,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						LaunchTime:   &launchTime,
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-freshly-started": 1.7}, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected the finding to still surface (evidence, not suppressed), got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected message to NOT claim full 7-day coverage for an instance running 11 minutes, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "insufficient running history") {
+		t.Fatalf("expected message to disclose insufficient history, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != false {
+		t.Fatalf("expected sufficient_history=false for a freshly-started instance, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestIdleWindowDescription_ExactlyAtBoundary(t *testing.T) {
+	now := time.Now().UTC()
+	launchTime := now.Add(-7 * 24 * time.Hour) // running for exactly 7 days
+	desc, sufficient := idleWindowDescription(7, &launchTime, now)
+	if !sufficient {
+		t.Fatalf("expected sufficient=true when running time equals idleDays exactly, got false (desc=%q)", desc)
+	}
+	if desc != "7 days" {
+		t.Fatalf("expected full-window description at the exact boundary, got %q", desc)
+	}
+}
+
+func TestIdleWindowDescription_ZeroIdleDays(t *testing.T) {
+	now := time.Now().UTC()
+	launchTime := now.Add(-1 * time.Minute)
+	desc, sufficient := idleWindowDescription(0, &launchTime, now)
+	if !sufficient {
+		t.Fatalf("expected sufficient=true for a zero-length configured window, got false (desc=%q)", desc)
+	}
+	if desc != "0 days" {
+		t.Fatalf("expected \"0 days\", got %q", desc)
+	}
+}
+
+func TestIdleWindowDescription_FutureLaunchTime_ClockSkew(t *testing.T) {
+	now := time.Now().UTC()
+	launchTime := now.Add(1 * time.Hour) // launch time in the future — clock skew
+	desc, sufficient := idleWindowDescription(7, &launchTime, now)
+	if sufficient {
+		t.Fatalf("expected sufficient=false for a launch time in the future, got true (desc=%q)", desc)
+	}
+	if !strings.Contains(desc, "1 minutes") {
+		t.Fatalf("expected clock skew to be treated as zero observed running time, got %q", desc)
 	}
 }
 
