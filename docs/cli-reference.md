@@ -138,7 +138,7 @@ awsspectre/
 │   │   ├── scanner.go             # MultiRegionScanner orchestrator
 │   │   ├── cloudfront.go          # CloudFront: disabled distributions, zero requests
 │   │   ├── ec2.go                 # EC2: idle CPU, stopped instances
-│   │   ├── ebs.go                 # EBS: detached volumes
+│   │   ├── ebs.go                 # EBS: detached volumes, gp2->gp3 migration candidates
 │   │   ├── eip.go                 # EIP: unassociated addresses
 │   │   ├── elb.go                 # ALB/NLB: zero targets, zero requests
 │   │   ├── natgw.go               # NAT Gateway: zero bytes processed

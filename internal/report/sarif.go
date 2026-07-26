@@ -159,5 +159,7 @@ func buildSARIFRules() []sarifRule {
 		{ID: string(awstype.FindingCloudFrontIdle), ShortDescription: sarifMessage{Text: "Idle CloudFront distribution"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		// WO-221: CloudWatch Logs retention finding needs a declared SARIF rule.
 		{ID: string(awstype.FindingLogGroupNoRetention), ShortDescription: sarifMessage{Text: "CloudWatch Log Group with no retention policy"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
+		// WO-222: gp2 migration candidate finding needs a declared SARIF rule.
+		{ID: string(awstype.FindingGP2MigrationCandidate), ShortDescription: sarifMessage{Text: "gp2 EBS volume is a gp3 migration candidate"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 	}
 }

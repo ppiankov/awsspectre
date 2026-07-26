@@ -62,9 +62,10 @@ const (
 	FindingSQSNoConsumer          FindingID = "SQS_NO_CONSUMER"
 	FindingSNSNoSubscribers       FindingID = "SNS_NO_SUBSCRIBERS"
 	FindingSNSIdle                FindingID = "SNS_IDLE"
-	FindingCloudFrontDisabled     FindingID = "CLOUDFRONT_DISABLED"    // WO-189: disabled distribution hygiene signal.
-	FindingCloudFrontIdle         FindingID = "CLOUDFRONT_IDLE"        // WO-189: zero-request distribution hygiene signal.
-	FindingLogGroupNoRetention    FindingID = "LOG_GROUP_NO_RETENTION" // WO-221: unbounded log-retention risk.
+	FindingCloudFrontDisabled     FindingID = "CLOUDFRONT_DISABLED"     // WO-189: disabled distribution hygiene signal.
+	FindingCloudFrontIdle         FindingID = "CLOUDFRONT_IDLE"         // WO-189: zero-request distribution hygiene signal.
+	FindingLogGroupNoRetention    FindingID = "LOG_GROUP_NO_RETENTION"  // WO-221: unbounded log-retention risk.
+	FindingGP2MigrationCandidate  FindingID = "GP2_MIGRATION_CANDIDATE" // WO-222: gp2 volume with a same-behavior gp3 cost win.
 )
 
 // Finding represents a single waste detection result.
