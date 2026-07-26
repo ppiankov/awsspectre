@@ -133,6 +133,7 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 					inst := instanceMap[id]
 					instanceType := string(inst.InstanceType)
 					cost := pricing.MonthlyEC2Cost(instanceType, s.region)
+					window, sufficient := idleWindowDescription(cfg.IdleDays, inst.LaunchTime, now)
 					result.Findings = append(result.Findings, Finding{
 						ID:                    FindingIdleEC2,
 						Severity:              SeverityHigh,
@@ -140,14 +141,15 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						ResourceID:            id,
 						ResourceName:          instanceName(inst),
 						Region:                s.region,
-						Message:               idleMessage(avgCPU, avgMem, hasMem, cfg.IdleDays),
+						Message:               idleMessage(avgCPU, avgMem, hasMem, window),
 						EstimatedMonthlyWaste: cost,
 						Metadata: map[string]any{
-							"instance_type":   instanceType,
-							"avg_cpu_percent": avgCPU,
-							"avg_mem_percent": avgMem,
-							"has_mem_metrics": hasMem,
-							"state":           "running",
+							"instance_type":      instanceType,
+							"avg_cpu_percent":    avgCPU,
+							"avg_mem_percent":    avgMem,
+							"has_mem_metrics":    hasMem,
+							"state":              "running",
+							"sufficient_history": sufficient,
 						},
 					})
 				}
@@ -271,11 +273,52 @@ func stoppedSince(inst ec2types.Instance) time.Time {
 	return time.Time{}
 }
 
-func idleMessage(avgCPU, avgMem float64, hasMem bool, idleDays int) string {
+func idleMessage(avgCPU, avgMem float64, hasMem bool, window string) string {
 	if hasMem {
-		return fmt.Sprintf("CPU %.1f%%, memory %.1f%% over %d days", avgCPU, avgMem, idleDays)
+		return fmt.Sprintf("CPU %.1f%%, memory %.1f%% over %s", avgCPU, avgMem, window)
 	}
-	return fmt.Sprintf("CPU %.1f%% over %d days", avgCPU, idleDays)
+	return fmt.Sprintf("CPU %.1f%% over %s", avgCPU, window)
+}
+
+// idleWindowDescription reports the time window an idle-CPU average actually
+// covers. A CloudWatch average silently reflects however little data exists —
+// an instance started or restarted more recently than cfg.IdleDays has far
+// less real running history than the configured lookback window implies, so
+// the message must say so rather than claim full-window confidence — WO-236.
+func idleWindowDescription(idleDays int, launchTime *time.Time, now time.Time) (description string, sufficient bool) {
+	full := fmt.Sprintf("%d days", idleDays)
+	if launchTime == nil {
+		return full, true
+	}
+
+	running := now.Sub(*launchTime)
+	if running < 0 {
+		// Clock skew between the EC2 API's LaunchTime and the scanner's clock —
+		// treat as no observed running time rather than silently absorbing the
+		// skew's magnitude into a clamped-but-otherwise-normal duration.
+		running = 0
+	}
+	fullWindow := time.Duration(idleDays) * 24 * time.Hour
+	if running >= fullWindow {
+		return full, true
+	}
+
+	return fmt.Sprintf("%s (insufficient running history for a confident %d-day idle verdict)", formatDuration(running), idleDays), false
+}
+
+func formatDuration(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		minutes := int(d.Minutes())
+		if minutes < 1 {
+			minutes = 1
+		}
+		return fmt.Sprintf("%d minutes", minutes)
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d hours", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d days", int(d.Hours()/24))
+	}
 }
 
 func buildInstanceMap(instances []ec2types.Instance) map[string]ec2types.Instance {
