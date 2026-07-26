@@ -349,6 +349,165 @@ func TestELBScanner_KubernetesManagedLB_DownRanked(t *testing.T) {
 	}
 }
 
+func TestELBScanner_EKSNativeManagedLB_DownRanked(t *testing.T) {
+	// WO-234: EKS's native/Auto Mode load balancing integration tags LBs with
+	// service.eks.amazonaws.com/* and eks:eks-cluster-name, a distinct
+	// convention from the AWS Load Balancer Controller add-on above.
+	arn := "arn:aws:elasticloadbalancing:eu-central-1:123456:loadbalancer/net/k8s-svc-eks-native/abc123"
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String(arn),
+				LoadBalancerName: awssdk.String("k8s-svc-eks-native"),
+				Type:             elbtypes.LoadBalancerTypeEnumNetwork,
+			},
+		},
+		tagsByARN: map[string][]elbtypes.Tag{
+			arn: {
+				{Key: awssdk.String("service.eks.amazonaws.com/resource"), Value: awssdk.String("LoadBalancer")},
+				{Key: awssdk.String("eks:eks-cluster-name"), Value: awssdk.String("eks-cluster-1")},
+			},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "eu-central-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected down-ranked medium severity for EKS-native-managed LB, got %s", f.Severity)
+	}
+	if !strings.Contains(f.Message, "Kubernetes") {
+		t.Fatalf("expected message to mention Kubernetes-managed guidance, got %q", f.Message)
+	}
+	if f.Metadata["controller_managed"] != true {
+		t.Fatalf("expected controller_managed=true in metadata, got %v", f.Metadata["controller_managed"])
+	}
+}
+
+func TestELBScanner_EKSClusterNameTagAlone_NotDownRanked(t *testing.T) {
+	// WO-234: eks:eks-cluster-name alone is NOT a safe signal — the AWS Load
+	// Balancer Controller also sets it on TargetGroupBinding resources to
+	// authorize registering targets on a load balancer that isn't actually
+	// k8s-owned (e.g. provisioned by Terraform). Only the pair together
+	// (with service.eks.amazonaws.com/resource) means EKS-native-managed.
+	arn := "arn:aws:elasticloadbalancing:eu-central-1:123456:loadbalancer/net/tf-owned-lb/abc123"
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String(arn),
+				LoadBalancerName: awssdk.String("tf-owned-lb"),
+				Type:             elbtypes.LoadBalancerTypeEnumNetwork,
+			},
+		},
+		tagsByARN: map[string][]elbtypes.Tag{
+			arn: {{Key: awssdk.String("eks:eks-cluster-name"), Value: awssdk.String("eks-cluster-1")}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "eu-central-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityHigh {
+		t.Fatalf("expected high severity for eks:eks-cluster-name alone (not a safe standalone signal), got %s", f.Severity)
+	}
+	if strings.Contains(f.Message, "Kubernetes") {
+		t.Fatalf("expected no Kubernetes guidance in message, got %q", f.Message)
+	}
+}
+
+func TestELBScanner_EKSResourceTagAlone_NotDownRanked(t *testing.T) {
+	// WO-234: service.eks.amazonaws.com/resource alone, without the cluster
+	// name tag, should not be treated as EKS-native-managed either.
+	arn := "arn:aws:elasticloadbalancing:eu-central-1:123456:loadbalancer/net/partial-tagged-lb/abc123"
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String(arn),
+				LoadBalancerName: awssdk.String("partial-tagged-lb"),
+				Type:             elbtypes.LoadBalancerTypeEnumNetwork,
+			},
+		},
+		tagsByARN: map[string][]elbtypes.Tag{
+			arn: {{Key: awssdk.String("service.eks.amazonaws.com/resource"), Value: awssdk.String("LoadBalancer")}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "eu-central-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityHigh {
+		t.Fatalf("expected high severity for service.eks.amazonaws.com/resource alone, got %s", f.Severity)
+	}
+	if strings.Contains(f.Message, "Kubernetes") {
+		t.Fatalf("expected no Kubernetes guidance in message, got %q", f.Message)
+	}
+}
+
+func TestELBScanner_UntaggedLB_NotDownRanked(t *testing.T) {
+	arn := "arn:aws:elasticloadbalancing:us-east-1:123456:loadbalancer/net/plain-lb/abc123"
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String(arn),
+				LoadBalancerName: awssdk.String("plain-lb"),
+				Type:             elbtypes.LoadBalancerTypeEnumNetwork,
+			},
+		},
+		tagsByARN: map[string][]elbtypes.Tag{
+			arn: {{Key: awssdk.String("Environment"), Value: awssdk.String("prod")}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityHigh {
+		t.Fatalf("expected high severity for a non-k8s-managed LB, got %s", f.Severity)
+	}
+	if strings.Contains(f.Message, "Kubernetes") {
+		t.Fatalf("expected no Kubernetes guidance in message, got %q", f.Message)
+	}
+	if _, ok := f.Metadata["controller_managed"]; ok {
+		t.Fatalf("expected no controller_managed metadata key, got %v", f.Metadata["controller_managed"])
+	}
+}
+
 func TestELBScanner_Type(t *testing.T) {
 	scanner := &ELBScanner{}
 	if scanner.Type() != ResourceALB {
