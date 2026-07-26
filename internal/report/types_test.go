@@ -269,6 +269,9 @@ func TestSARIFReporter_DefaultHygieneRulesDeclared(t *testing.T) {
 		{id: awstype.FindingSNSIdle, severity: awstype.SeverityLow, resourceType: "sns", expectedLevel: "note"},
 		// WO-221: CloudWatch Logs retention finding is always Hygiene-visible.
 		{id: awstype.FindingLogGroupNoRetention, severity: awstype.SeverityMedium, resourceType: "log_group", expectedLevel: "warning"},
+		// WO-222: gp2 migration candidate is always Hygiene-visible — per-volume
+		// savings are often below the default cost threshold.
+		{id: awstype.FindingGP2MigrationCandidate, severity: awstype.SeverityLow, resourceType: awstype.ResourceEBS, expectedLevel: "note"},
 	}
 	data.Findings = make([]awstype.Finding, 0, len(defaultHygieneRules))
 	for _, rule := range defaultHygieneRules {
