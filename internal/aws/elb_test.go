@@ -353,19 +353,19 @@ func TestELBScanner_EKSNativeManagedLB_DownRanked(t *testing.T) {
 	// WO-234: EKS's native/Auto Mode load balancing integration tags LBs with
 	// service.eks.amazonaws.com/* and eks:eks-cluster-name, a distinct
 	// convention from the AWS Load Balancer Controller add-on above.
-	arn := "arn:aws:elasticloadbalancing:eu-central-1:123456:loadbalancer/net/k8s-redpanda/abc123"
+	arn := "arn:aws:elasticloadbalancing:eu-central-1:123456:loadbalancer/net/k8s-svc-eks-native/abc123"
 	mock := &mockELBClient{
 		lbs: []elbtypes.LoadBalancer{
 			{
 				LoadBalancerArn:  awssdk.String(arn),
-				LoadBalancerName: awssdk.String("k8s-redpanda"),
+				LoadBalancerName: awssdk.String("k8s-svc-eks-native"),
 				Type:             elbtypes.LoadBalancerTypeEnumNetwork,
 			},
 		},
 		tagsByARN: map[string][]elbtypes.Tag{
 			arn: {
 				{Key: awssdk.String("service.eks.amazonaws.com/resource"), Value: awssdk.String("LoadBalancer")},
-				{Key: awssdk.String("eks:eks-cluster-name"), Value: awssdk.String("pulsee-dev")},
+				{Key: awssdk.String("eks:eks-cluster-name"), Value: awssdk.String("eks-cluster-1")},
 			},
 		},
 	}
@@ -409,7 +409,7 @@ func TestELBScanner_EKSClusterNameTagAlone_NotDownRanked(t *testing.T) {
 			},
 		},
 		tagsByARN: map[string][]elbtypes.Tag{
-			arn: {{Key: awssdk.String("eks:eks-cluster-name"), Value: awssdk.String("pulsee-dev")}},
+			arn: {{Key: awssdk.String("eks:eks-cluster-name"), Value: awssdk.String("eks-cluster-1")}},
 		},
 	}
 
