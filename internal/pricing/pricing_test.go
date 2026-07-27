@@ -28,6 +28,27 @@ func TestMonthlyEC2Cost(t *testing.T) {
 	}
 }
 
+func TestMonthlyEC2Cost_GPUInstanceTypes(t *testing.T) {
+	// WO-238: GPU-family instance types previously had no pricing.json entries
+	// at all, so an idle GPU instance (WO-235) would report $0 estimated
+	// waste for the account's most expensive compute.
+	gpuTypes := []string{
+		"g3.4xlarge", "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
+		"p2.xlarge", "p3.2xlarge", "p4d.24xlarge", "p5.48xlarge",
+		"inf1.xlarge", "inf2.xlarge", "trn1.2xlarge",
+	}
+	regions := []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"}
+
+	for _, instanceType := range gpuTypes {
+		for _, region := range regions {
+			cost := MonthlyEC2Cost(instanceType, region)
+			if cost == 0 {
+				t.Errorf("expected non-zero cost for %s in %s, got $0", instanceType, region)
+			}
+		}
+	}
+}
+
 func TestMonthlyEC2Cost_Calculation(t *testing.T) {
 	// t3.large in us-east-1 is $0.0832/hr * 730 hrs = ~$60.74
 	cost := MonthlyEC2Cost("t3.large", "us-east-1")
