@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -115,6 +116,20 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				memMap = make(map[string]float64)
 			}
 
+			// Fetch GPU utilization for GPU-family instances (optional — requires the
+			// CloudWatch agent's NVIDIA GPU metrics plugin) — WO-235: a GPU-bound
+			// workload commonly runs with low host CPU while the GPU itself is
+			// saturated, since the CPU's job is mostly feeding the accelerator.
+			// Note: Inferentia (inf1/inf2) and Trainium (trn1) report utilization via
+			// separate Neuron metrics, not this NVIDIA-agent metric, so the override
+			// is currently inert for those families — they fall back to CPU-only,
+			// same as an instance with no GPU-metrics agent installed at all.
+			gpuMap, gpuErr := s.metrics.FetchAverage(ctx, "CWAgent", "utilization_gpu", "InstanceId", runningIDs, cfg.IdleDays)
+			if gpuErr != nil {
+				slog.Warn("Failed to fetch EC2 GPU metrics", "region", s.region, "error", gpuErr)
+				gpuMap = make(map[string]float64)
+			}
+
 			instanceMap := buildInstanceMap(instances)
 			for _, id := range runningIDs {
 				avgCPU, ok := cpuMap[id]
@@ -122,6 +137,23 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 					continue
 				}
 				if avgCPU < cfg.IdleCPUThreshold {
+					inst := instanceMap[id]
+					instanceType := string(inst.InstanceType)
+
+					// A GPU-bound instance with low CPU may still be fully saturated
+					// on the GPU itself — no GPU metric data means the CloudWatch
+					// agent's GPU plugin isn't installed, so fall back to CPU-only.
+					// Deliberately reuses cfg.HighMemoryThreshold rather than adding a
+					// second threshold flag: both checks answer "is some other
+					// utilization signal above the configured high-utilization bar,"
+					// so --high-memory-threshold doubles as the GPU bar too.
+					avgGPU, hasGPU := gpuMap[id]
+					if isGPUInstanceType(instanceType) && hasGPU && avgGPU >= cfg.HighMemoryThreshold {
+						slog.Debug("GPU instance has low CPU but high GPU utilization — not idle",
+							"instance", id, "cpu", avgCPU, "gpu", avgGPU)
+						continue
+					}
+
 					// Check if memory utilization is high enough to override the idle CPU signal
 					avgMem, hasMem := memMap[id]
 					if hasMem && avgMem >= cfg.HighMemoryThreshold {
@@ -130,10 +162,20 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						continue
 					}
 
-					inst := instanceMap[id]
-					instanceType := string(inst.InstanceType)
 					cost := pricing.MonthlyEC2Cost(instanceType, s.region)
 					window, sufficient := idleWindowDescription(cfg.IdleDays, inst.LaunchTime, now)
+					metadata := map[string]any{
+						"instance_type":      instanceType,
+						"avg_cpu_percent":    avgCPU,
+						"avg_mem_percent":    avgMem,
+						"has_mem_metrics":    hasMem,
+						"state":              "running",
+						"sufficient_history": sufficient,
+					}
+					if isGPUInstanceType(instanceType) {
+						metadata["avg_gpu_percent"] = avgGPU
+						metadata["has_gpu_metrics"] = hasGPU
+					}
 					result.Findings = append(result.Findings, Finding{
 						ID:                    FindingIdleEC2,
 						Severity:              SeverityHigh,
@@ -143,14 +185,7 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						Region:                s.region,
 						Message:               idleMessage(avgCPU, avgMem, hasMem, window),
 						EstimatedMonthlyWaste: cost,
-						Metadata: map[string]any{
-							"instance_type":      instanceType,
-							"avg_cpu_percent":    avgCPU,
-							"avg_mem_percent":    avgMem,
-							"has_mem_metrics":    hasMem,
-							"state":              "running",
-							"sufficient_history": sufficient,
-						},
+						Metadata:              metadata,
 					})
 				}
 			}
@@ -319,6 +354,25 @@ func formatDuration(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%d days", int(d.Hours()/24))
 	}
+}
+
+// gpuInstanceFamilyPrefixes are the family prefixes AWS uses for GPU/accelerator
+// instance types (the part before the size suffix, e.g. "g4dn" in "g4dn.xlarge").
+// Prefix matching (not exact) intentionally also covers variants not spelled out
+// here, e.g. "p4d"/"p4de" via "p4", "g4ad" via "g4" — WO-235.
+var gpuInstanceFamilyPrefixes = []string{"p2", "p3", "p4", "p5", "g3", "g4", "g5", "g6", "inf1", "inf2", "trn1"}
+
+func isGPUInstanceType(instanceType string) bool {
+	family := instanceType
+	if idx := strings.Index(instanceType, "."); idx >= 0 {
+		family = instanceType[:idx]
+	}
+	for _, prefix := range gpuInstanceFamilyPrefixes {
+		if strings.HasPrefix(family, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildInstanceMap(instances []ec2types.Instance) map[string]ec2types.Instance {

@@ -40,7 +40,7 @@ awsspectre scan [flags]
 | `--stale-days` | `90` | Age threshold for snapshots |
 | `--min-monthly-cost` | `1.0` | Minimum monthly cost to report ($) |
 | `--idle-cpu-threshold` | `5.0` | CPU % below which a resource is idle |
-| `--high-memory-threshold` | `50.0` | Memory % above which a resource is not idle |
+| `--high-memory-threshold` | `50.0` | Memory (or, for GPU instances, GPU utilization) % above which a resource is not idle |
 | `--stopped-threshold-days` | `30` | Days stopped before flagging EC2 |
 | `--nat-gw-low-traffic-gb` | `1.0` | NAT Gateway monthly GB below which to flag as low traffic |
 | `--exclude-tags` | | Exclude resources by tag (`Key=Value` or `Key`, comma-separated) |
@@ -198,3 +198,4 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **Snapshot AMI check.** Only validates against AMIs owned by the account. Shared AMIs referencing the snapshot will not be detected.
 - **Single metric thresholds.** CPU < 5% is a simple heuristic. Some workloads (batch, cron) may appear idle but are not.
 - **gp2/gp3 pricing coverage.** The gp2→gp3 migration savings estimate is only backed by curated rates for 4 regions; other regions fall back to us-east-1 pricing for both volume types, which may not reflect the real gp2/gp3 delta (or lack thereof) in every region.
+- **CloudWatch Agent-dependent overrides.** Memory- and GPU-aware idle detection for EC2 (`--high-memory-threshold`) both require the CloudWatch Agent's respective plugins (`mem_used_percent`, `utilization_gpu`) to be installed and reporting; without them, detection silently falls back to CPU-only. GPU utilization metrics are NVIDIA-agent-based — Inferentia (inf1/inf2) and Trainium (trn1) instances report via separate Neuron metrics not currently read, so GPU-aware detection is inert for those families today.

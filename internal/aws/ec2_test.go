@@ -52,6 +52,10 @@ func newMockMetricsFetcher(cpuValues map[string]float64) *MetricsFetcher {
 }
 
 func newEC2MockMetricsFetcher(cpuValues, memValues map[string]float64) *MetricsFetcher {
+	return newEC2MockMetricsFetcherWithGPU(cpuValues, memValues, nil)
+}
+
+func newEC2MockMetricsFetcherWithGPU(cpuValues, memValues, gpuValues map[string]float64) *MetricsFetcher {
 	return NewMetricsFetcher(&mockCloudWatchClient{
 		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
 			var results []cwtypes.MetricDataResult
@@ -61,13 +65,16 @@ func newEC2MockMetricsFetcher(cpuValues, memValues map[string]float64) *MetricsF
 				}
 				instID := *q.MetricStat.Metric.Dimensions[0].Value
 				namespace := *q.MetricStat.Metric.Namespace
+				metricName := *q.MetricStat.Metric.MetricName
 
 				var values map[string]float64
-				switch namespace {
-				case "AWS/EC2":
+				switch {
+				case namespace == "AWS/EC2":
 					values = cpuValues
-				case "CWAgent":
+				case namespace == "CWAgent" && metricName == "mem_used_percent":
 					values = memValues
+				case namespace == "CWAgent" && metricName == "utilization_gpu":
+					values = gpuValues
 				}
 
 				if values == nil {
@@ -561,6 +568,209 @@ func TestEC2Scanner_LowCPULowMemory_StillIdle(t *testing.T) {
 	}
 	if f.Metadata["has_mem_metrics"] != true {
 		t.Fatalf("expected has_mem_metrics true, got %v", f.Metadata["has_mem_metrics"])
+	}
+}
+
+func TestEC2Scanner_GPUInstance_LowCPUHighGPU_NotIdle(t *testing.T) {
+	// WO-235: a GPU-bound workload commonly runs with low host CPU while the
+	// GPU itself is saturated — CPU-only detection would falsely flag this
+	// (expensive) instance as idle.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-gpubusy001"),
+						InstanceType: ec2types.InstanceTypeG4dnXlarge,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcherWithGPU(
+		map[string]float64{"i-gpubusy001": 2.0},
+		nil,
+		map[string]float64{"i-gpubusy001": 95.0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for a GPU-saturated instance, got %d", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_GPUInstance_LowCPULowGPU_StillIdle(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-gpuidle001"),
+						InstanceType: ec2types.InstanceTypeG4dnXlarge,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcherWithGPU(
+		map[string]float64{"i-gpuidle001": 1.0},
+		nil,
+		map[string]float64{"i-gpuidle001": 3.0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding for a genuinely idle GPU instance, got %d", len(result.Findings))
+	}
+	f := result.Findings[0]
+	if f.ID != FindingIdleEC2 {
+		t.Fatalf("expected IDLE_EC2, got %s", f.ID)
+	}
+	if f.Metadata["avg_gpu_percent"] != 3.0 {
+		t.Fatalf("expected avg_gpu_percent 3.0, got %v", f.Metadata["avg_gpu_percent"])
+	}
+	if f.Metadata["has_gpu_metrics"] != true {
+		t.Fatalf("expected has_gpu_metrics true, got %v", f.Metadata["has_gpu_metrics"])
+	}
+}
+
+func TestEC2Scanner_GPUInstance_NoGPUMetrics_FallsBackToCPU(t *testing.T) {
+	// No CloudWatch agent GPU plugin installed — no GPU metric data at all.
+	// Must fall back to CPU-only detection rather than blocking the finding.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-gpunometrics001"),
+						InstanceType: ec2types.InstanceTypeG4dnXlarge,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcherWithGPU(
+		map[string]float64{"i-gpunometrics001": 1.0},
+		nil,
+		nil, // no GPU data available for this instance
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding when GPU metrics are unavailable (CPU-only fallback), got %d", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_NonGPUInstance_HighGPUMetricIgnored(t *testing.T) {
+	// A non-GPU instance type must never consult the GPU override, even if
+	// (implausibly) GPU-namespaced data happens to exist for its ID.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-notgpu001"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcherWithGPU(
+		map[string]float64{"i-notgpu001": 1.0},
+		nil,
+		map[string]float64{"i-notgpu001": 95.0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding — GPU override must not apply to a non-GPU instance type, got %d", len(result.Findings))
+	}
+	if _, ok := result.Findings[0].Metadata["avg_gpu_percent"]; ok {
+		t.Fatalf("expected no GPU metadata keys on a non-GPU instance finding, got %v", result.Findings[0].Metadata["avg_gpu_percent"])
+	}
+}
+
+func TestEC2Scanner_GPUInstance_LowGPUHighMemory_NotIdle(t *testing.T) {
+	// A GPU instance can fall through the GPU check (low GPU utilization) and
+	// still be caught by the independent memory override.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-gpumemheavy001"),
+						InstanceType: ec2types.InstanceTypeG4dnXlarge,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcherWithGPU(
+		map[string]float64{"i-gpumemheavy001": 2.0},
+		map[string]float64{"i-gpumemheavy001": 85.0},
+		map[string]float64{"i-gpumemheavy001": 3.0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings — memory override must still apply to a GPU instance with low GPU utilization, got %d", len(result.Findings))
+	}
+}
+
+func TestIsGPUInstanceType(t *testing.T) {
+	cases := []struct {
+		instanceType string
+		want         bool
+	}{
+		{"g4dn.xlarge", true},
+		{"g4dn.2xlarge", true},
+		{"p3.2xlarge", true},
+		{"p4d.24xlarge", true},
+		{"g5.xlarge", true},
+		{"g6.xlarge", true},
+		{"inf1.xlarge", true},
+		{"inf2.xlarge", true},
+		{"trn1.2xlarge", true},
+		{"t3.medium", false},
+		{"r5.2xlarge", false},
+		{"m5.large", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := isGPUInstanceType(c.instanceType); got != c.want {
+			t.Errorf("isGPUInstanceType(%q) = %v, want %v", c.instanceType, got, c.want)
+		}
 	}
 }
 
