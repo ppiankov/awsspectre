@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-07-27
+
+### Fixed
+
+- The generated IAM policy (`awsspectre init`) and permissions docs now include the 7 tag-fetch actions (`elasticloadbalancing:DescribeTags`, `kinesis:ListTagsForStream`, `firehose:ListTagsForDeliveryStream`, `lambda:ListTags`, `sns:ListTagsForResource`, `sqs:ListQueueTags`, `cloudfront:ListTagsForResource`) that an earlier release added scanner calls for. Applying the previously-generated policy caused `AccessDenied` on every one of these calls and silently no-op'd `--exclude-tags` for those resource types.
+
 ## [0.8.3] - 2026-07-27
 
 ### Fixed
@@ -156,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.4]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.4
 [0.8.3]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.3
 [0.8.2]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.2
 [0.8.1]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.1
