@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-07-27
+
+### Fixed
+
+- Added on-demand pricing entries for GPU-family EC2 instance types (g3, g4dn, g5, g6, p2, p3, p4d, p5, inf1, inf2, trn1). Previously an idle GPU instance would report $0 estimated waste since no pricing data existed for that instance class.
+
 ## [0.8.4] - 2026-07-27
 
 ### Fixed
@@ -162,6 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.5]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.5
 [0.8.4]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.4
 [0.8.3]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.3
 [0.8.2]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.2
