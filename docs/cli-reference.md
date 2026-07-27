@@ -88,15 +88,15 @@ Generate a sample config with `awsspectre init`. An explicit CLI flag always tak
 AWSSpectre requires read-only access. Run `awsspectre init` to generate the minimal IAM policy, or attach these permissions:
 
 - `ec2:DescribeInstances`, `ec2:DescribeVolumes`, `ec2:DescribeAddresses`, `ec2:DescribeSnapshots`, `ec2:DescribeSecurityGroups`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeNatGateways`, `ec2:DescribeImages`, `ec2:DescribeRegions`
-- `elasticloadbalancing:DescribeLoadBalancers`, `elasticloadbalancing:DescribeTargetGroups`, `elasticloadbalancing:DescribeTargetHealth`
+- `elasticloadbalancing:DescribeLoadBalancers`, `elasticloadbalancing:DescribeTargetGroups`, `elasticloadbalancing:DescribeTargetHealth`, `elasticloadbalancing:DescribeTags`
 - `rds:DescribeDBInstances`
-- `lambda:ListFunctions`
-- `kinesis:ListStreams`, `kinesis:DescribeStreamSummary`
-- `firehose:ListDeliveryStreams`
-- `sqs:ListQueues`, `sqs:GetQueueAttributes`
-- `sns:ListTopics`, `sns:ListSubscriptionsByTopic`
+- `lambda:ListFunctions`, `lambda:ListTags`
+- `kinesis:ListStreams`, `kinesis:DescribeStreamSummary`, `kinesis:ListTagsForStream`
+- `firehose:ListDeliveryStreams`, `firehose:ListTagsForDeliveryStream`
+- `sqs:ListQueues`, `sqs:GetQueueAttributes`, `sqs:ListQueueTags`
+- `sns:ListTopics`, `sns:ListSubscriptionsByTopic`, `sns:ListTagsForResource`
 - `logs:DescribeLogGroups`, `logs:ListTagsForResource`
-- `cloudfront:ListDistributions`
+- `cloudfront:ListDistributions`, `cloudfront:ListTagsForResource`
 - `cloudwatch:GetMetricData`
 
 
