@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6] - 2026-07-28
+
+### Fixed
+
+- `DETACHED_EBS` and `STOPPED_EC2` now prefer a real CloudTrail `DetachVolume`/`StopInstances` event over the resource's CreateTime/LaunchTime, which could wildly overcount elapsed time for a resource with a long prior lifecycle (one live case overcounted by ~39x; another fired despite the real stop time being under the configured threshold). Falls back to the previous estimate when `cloudtrail:LookupEvents` isn't granted or no matching event is found.
+
 ## [0.8.5] - 2026-07-27
 
 ### Fixed
@@ -168,6 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.6]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.6
 [0.8.5]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.5
 [0.8.4]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.4
 [0.8.3]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.3
