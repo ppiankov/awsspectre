@@ -337,46 +337,9 @@ func idleMessage(avgCPU, avgMem float64, hasMem bool, window string) string {
 	return fmt.Sprintf("CPU %.1f%% over %s", avgCPU, window)
 }
 
-// idleWindowDescription reports the time window an idle-CPU average actually
-// covers. A CloudWatch average silently reflects however little data exists —
-// an instance started or restarted more recently than cfg.IdleDays has far
-// less real running history than the configured lookback window implies, so
-// the message must say so rather than claim full-window confidence — WO-236.
-func idleWindowDescription(idleDays int, launchTime *time.Time, now time.Time) (description string, sufficient bool) {
-	full := fmt.Sprintf("%d days", idleDays)
-	if launchTime == nil {
-		return full, true
-	}
-
-	running := now.Sub(*launchTime)
-	if running < 0 {
-		// Clock skew between the EC2 API's LaunchTime and the scanner's clock —
-		// treat as no observed running time rather than silently absorbing the
-		// skew's magnitude into a clamped-but-otherwise-normal duration.
-		running = 0
-	}
-	fullWindow := time.Duration(idleDays) * 24 * time.Hour
-	if running >= fullWindow {
-		return full, true
-	}
-
-	return fmt.Sprintf("%s (insufficient running history for a confident %d-day idle verdict)", formatDuration(running), idleDays), false
-}
-
-func formatDuration(d time.Duration) string {
-	switch {
-	case d < time.Hour:
-		minutes := int(d.Minutes())
-		if minutes < 1 {
-			minutes = 1
-		}
-		return fmt.Sprintf("%d minutes", minutes)
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%d hours", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%d days", int(d.Hours()/24))
-	}
-}
+// idleWindowDescription and formatDuration moved to idlewindow.go — WO-249
+// generalized this pattern beyond EC2 to the rest of the resource family
+// (WO-237 surveyed which scanners the pattern applies to).
 
 // gpuInstanceFamilyPrefixes are the family prefixes AWS uses for GPU/accelerator
 // instance types (the part before the size suffix, e.g. "g4dn" in "g4dn.xlarge").
