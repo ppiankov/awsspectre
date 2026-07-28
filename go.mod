@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.43.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.10
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.65.4
+	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.54.1
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.80.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.290.1

@@ -21,14 +21,21 @@ type EC2API interface {
 
 // EC2Scanner detects idle and stopped EC2 instances.
 type EC2Scanner struct {
-	client  EC2API
-	metrics *MetricsFetcher
-	region  string
+	client     EC2API
+	metrics    *MetricsFetcher
+	region     string
+	cloudTrail CloudTrailAPI
 }
 
 // NewEC2Scanner creates a scanner for EC2 instances.
 func NewEC2Scanner(client EC2API, metrics *MetricsFetcher, region string) *EC2Scanner {
 	return &EC2Scanner{client: client, metrics: metrics, region: region}
+}
+
+// SetCloudTrailClient enables CloudTrail-backed stop-time lookup (WO-243).
+// Optional: without it, STOPPED_EC2 falls back to its LaunchTime-based estimate.
+func (s *EC2Scanner) SetCloudTrailClient(client CloudTrailAPI) {
+	s.cloudTrail = client
 }
 
 // Type returns the resource type this scanner handles.
@@ -58,13 +65,27 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		}
 
 		if inst.State != nil && inst.State.Name == ec2types.InstanceStateNameStopped {
+			instID := deref(inst.InstanceId)
+			// LaunchTime is the fallback proxy for when the instance was
+			// stopped; prefer the real CloudTrail StopInstances event when
+			// available, since LaunchTime alone can overcount by however
+			// long the instance ran before it was ever stopped — WO-243.
 			stoppedAt := stoppedSince(inst)
 			if stoppedAt.IsZero() {
 				continue
 			}
 			daysStopped := int(now.Sub(stoppedAt).Hours() / 24)
+			// The real stop time can only be >= LaunchTime, so the
+			// CloudTrail-corrected day count can only be <= this naive
+			// estimate — only look it up when the naive estimate already
+			// clears the threshold, since a lookup can never turn a
+			// below-threshold instance into an above-threshold one.
 			if daysStopped >= cfg.StoppedThresholdDays {
-				instID := deref(inst.InstanceId)
+				if stopTime, ok := lookupMostRecentEventTime(ctx, s.cloudTrail, instID, "StopInstances"); ok {
+					daysStopped = int(now.Sub(stopTime).Hours() / 24)
+				}
+			}
+			if daysStopped >= cfg.StoppedThresholdDays {
 				instanceType := string(inst.InstanceType)
 
 				// Collect attached volume IDs for EBS cost lookup
@@ -299,9 +320,10 @@ func instanceName(inst ec2types.Instance) string {
 	return tagValue(inst.Tags, "Name")
 }
 
+// stoppedSince returns the LaunchTime-based fallback estimate for when an
+// instance was stopped. Scan() prefers a real CloudTrail StopInstances event
+// over this estimate when one is available — WO-243.
 func stoppedSince(inst ec2types.Instance) time.Time {
-	// LaunchTime is used as a proxy for when the instance was last active.
-	// For a more precise stopped-since timestamp, CloudTrail events would be needed.
 	if inst.LaunchTime != nil {
 		return *inst.LaunchTime
 	}
