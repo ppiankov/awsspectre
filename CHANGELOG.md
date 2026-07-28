@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.7] - 2026-07-28
+
+### Fixed
+
+- `KINESIS_FIREHOSE_IDLE` now checks the correct CloudWatch metric depending on a delivery stream's source type. `AWS/Firehose`'s `IncomingRecords` metric doesn't exist for delivery streams sourced from a Kinesis stream, so a real, actively-delivering stream of that type always read zero; the scanner now checks `DataReadFromKinesisStream.Records` for those streams instead.
+
 ## [0.8.6] - 2026-07-28
 
 ### Fixed
@@ -174,6 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.7]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.7
 [0.8.6]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.6
 [0.8.5]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.5
 [0.8.4]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.4
