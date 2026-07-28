@@ -136,6 +136,7 @@ awsspectre/
 │   │   ├── types.go               # Finding, Severity, ResourceType, ScanConfig
 │   │   ├── client.go              # AWS config loader, region discovery
 │   │   ├── cloudwatch.go          # Batched GetMetricData (up to 500 queries/call)
+│   │   ├── idlewindow.go          # Shared idle-window confidence helper (data-coverage honesty)
 │   │   ├── scanner.go             # MultiRegionScanner orchestrator
 │   │   ├── cloudfront.go          # CloudFront: disabled distributions, zero requests
 │   │   ├── ec2.go                 # EC2: idle CPU, stopped instances

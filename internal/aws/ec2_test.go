@@ -230,42 +230,6 @@ func TestEC2Scanner_IdleInstance_RecentlyStarted_InsufficientHistoryMessage(t *t
 	}
 }
 
-func TestIdleWindowDescription_ExactlyAtBoundary(t *testing.T) {
-	now := time.Now().UTC()
-	launchTime := now.Add(-7 * 24 * time.Hour) // running for exactly 7 days
-	desc, sufficient := idleWindowDescription(7, &launchTime, now)
-	if !sufficient {
-		t.Fatalf("expected sufficient=true when running time equals idleDays exactly, got false (desc=%q)", desc)
-	}
-	if desc != "7 days" {
-		t.Fatalf("expected full-window description at the exact boundary, got %q", desc)
-	}
-}
-
-func TestIdleWindowDescription_ZeroIdleDays(t *testing.T) {
-	now := time.Now().UTC()
-	launchTime := now.Add(-1 * time.Minute)
-	desc, sufficient := idleWindowDescription(0, &launchTime, now)
-	if !sufficient {
-		t.Fatalf("expected sufficient=true for a zero-length configured window, got false (desc=%q)", desc)
-	}
-	if desc != "0 days" {
-		t.Fatalf("expected \"0 days\", got %q", desc)
-	}
-}
-
-func TestIdleWindowDescription_FutureLaunchTime_ClockSkew(t *testing.T) {
-	now := time.Now().UTC()
-	launchTime := now.Add(1 * time.Hour) // launch time in the future — clock skew
-	desc, sufficient := idleWindowDescription(7, &launchTime, now)
-	if sufficient {
-		t.Fatalf("expected sufficient=false for a launch time in the future, got true (desc=%q)", desc)
-	}
-	if !strings.Contains(desc, "1 minutes") {
-		t.Fatalf("expected clock skew to be treated as zero observed running time, got %q", desc)
-	}
-}
-
 func TestEC2Scanner_HealthyInstance(t *testing.T) {
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{

@@ -3,7 +3,9 @@ package aws
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -353,6 +355,120 @@ func TestRDSScanner_UnknownClass_FallbackCPUOnly(t *testing.T) {
 	f := result.Findings[0]
 	if f.Metadata["has_mem_metrics"] != false {
 		t.Fatalf("expected has_mem_metrics false for unknown class, got %v", f.Metadata["has_mem_metrics"])
+	}
+}
+
+func TestRDSScanner_IdleInstance_RecentlyCreated_InsufficientHistoryMessage(t *testing.T) {
+	// WO-249: same defect class as WO-236 (EC2) — an instance created less
+	// than cfg.IdleDays ago must not have its finding message claim full
+	// window confidence it doesn't have.
+	createTime := time.Now().UTC().Add(-11 * time.Minute)
+	mock := &mockRDSClient{
+		instances: []rdstypes.DBInstance{
+			{
+				DBInstanceIdentifier: awssdk.String("freshly-created-db"),
+				DBInstanceClass:      awssdk.String("db.t3.medium"),
+				DBInstanceStatus:     awssdk.String("available"),
+				Engine:               awssdk.String("postgres"),
+				MultiAZ:              awssdk.Bool(false),
+				InstanceCreateTime:   &createTime,
+			},
+		},
+	}
+
+	metrics := newRDSMockMetrics([]float64{1.7}, []float64{2.0}, 3*1024*1024*1024)
+	scanner := NewRDSScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected the finding to still surface (evidence, not suppressed), got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected message to NOT claim full 7-day coverage for an instance created 11 minutes ago, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "insufficient running history") {
+		t.Fatalf("expected message to disclose insufficient history, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != false {
+		t.Fatalf("expected sufficient_history=false for a freshly-created instance, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestRDSScanner_IdleInstance_AboveThreshold_UsesFullWindowMessage(t *testing.T) {
+	// An instance old enough to fully cover the lookback window reports the
+	// plain full-window message, unchanged from pre-WO-249 behavior.
+	createTime := time.Now().UTC().Add(-30 * 24 * time.Hour) // 30 days ago
+	mock := &mockRDSClient{
+		instances: []rdstypes.DBInstance{
+			{
+				DBInstanceIdentifier: awssdk.String("long-lived-db"),
+				DBInstanceClass:      awssdk.String("db.t3.medium"),
+				DBInstanceStatus:     awssdk.String("available"),
+				Engine:               awssdk.String("postgres"),
+				MultiAZ:              awssdk.Bool(false),
+				InstanceCreateTime:   &createTime,
+			},
+		},
+	}
+
+	metrics := newRDSMockMetrics([]float64{1.5}, []float64{2.0}, 3*1024*1024*1024)
+	scanner := NewRDSScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected full-window message for a 30-day-old instance, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true for a 30-day-old instance, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestRDSScanner_IdleInstance_NoCreateTime_DefaultsToSufficientHistory(t *testing.T) {
+	// InstanceCreateTime absent (e.g. API omitted it) must not be treated as
+	// "brand new" — default to full confidence, matching EC2's nil-LaunchTime
+	// behavior and preserving pre-WO-249 output for fixtures that don't set it.
+	mock := &mockRDSClient{
+		instances: []rdstypes.DBInstance{
+			{
+				DBInstanceIdentifier: awssdk.String("unknown-age-db"),
+				DBInstanceClass:      awssdk.String("db.t3.medium"),
+				DBInstanceStatus:     awssdk.String("available"),
+				Engine:               awssdk.String("postgres"),
+				MultiAZ:              awssdk.Bool(false),
+			},
+		},
+	}
+
+	metrics := newRDSMockMetrics([]float64{1.0}, []float64{2.0}, 3*1024*1024*1024)
+	scanner := NewRDSScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected full-window message when InstanceCreateTime is unset, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true when InstanceCreateTime is unset, got %v", f.Metadata["sufficient_history"])
 	}
 }
 

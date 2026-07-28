@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
@@ -64,6 +65,8 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		return result, nil
 	}
 
+	now := time.Now().UTC()
+
 	// Fetch CPU utilization
 	cpuMap, err := s.metrics.FetchAverage(ctx, "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", ids, cfg.IdleDays)
 	if err != nil {
@@ -118,7 +121,8 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		multiAZ := inst.MultiAZ != nil && *inst.MultiAZ
 		cost := pricing.MonthlyRDSCost(instanceClass, s.region, multiAZ)
 
-		msg := rdsIdleMessage(avgCPU, memPct, hasMem, totalConns, cfg.IdleDays)
+		window, sufficient := idleWindowDescription(cfg.IdleDays, inst.InstanceCreateTime, now)
+		msg := rdsIdleMessage(avgCPU, memPct, hasMem, totalConns, window)
 
 		result.Findings = append(result.Findings, Finding{
 			ID:                    FindingIdleRDS,
@@ -138,6 +142,7 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				"avg_mem_percent":       memPct,
 				"freeable_memory_bytes": freeableBytes,
 				"has_mem_metrics":       hasMem,
+				"sufficient_history":    sufficient,
 			},
 		})
 	}
@@ -145,15 +150,15 @@ func (s *RDSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 	return result, nil
 }
 
-func rdsIdleMessage(avgCPU, memPct float64, hasMem bool, totalConns float64, idleDays int) string {
+func rdsIdleMessage(avgCPU, memPct float64, hasMem bool, totalConns float64, window string) string {
 	memSuffix := ""
 	if hasMem {
 		memSuffix = fmt.Sprintf(", memory %.1f%%", memPct)
 	}
 	if totalConns == 0 {
-		return fmt.Sprintf("Zero connections over %d days, CPU %.1f%%%s", idleDays, avgCPU, memSuffix)
+		return fmt.Sprintf("Zero connections over %s, CPU %.1f%%%s", window, avgCPU, memSuffix)
 	}
-	return fmt.Sprintf("CPU %.1f%%%s over %d days", avgCPU, memSuffix, idleDays)
+	return fmt.Sprintf("CPU %.1f%%%s over %s", avgCPU, memSuffix, window)
 }
 
 func (s *RDSScanner) listDBInstances(ctx context.Context) ([]rdstypes.DBInstance, error) {
