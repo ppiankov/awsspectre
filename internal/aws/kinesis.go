@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
+	firehosetypes "github.com/aws/aws-sdk-go-v2/service/firehose/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/ppiankov/awsspectre/internal/pricing"
@@ -237,6 +238,7 @@ func (s *KinesisScanner) fetchStreamTags(ctx context.Context, name string) (map[
 type FirehoseAPI interface {
 	ListDeliveryStreams(ctx context.Context, input *firehose.ListDeliveryStreamsInput, opts ...func(*firehose.Options)) (*firehose.ListDeliveryStreamsOutput, error)
 	ListTagsForDeliveryStream(ctx context.Context, input *firehose.ListTagsForDeliveryStreamInput, opts ...func(*firehose.Options)) (*firehose.ListTagsForDeliveryStreamOutput, error)
+	DescribeDeliveryStream(ctx context.Context, input *firehose.DescribeDeliveryStreamInput, opts ...func(*firehose.Options)) (*firehose.DescribeDeliveryStreamOutput, error)
 }
 
 // FirehoseScanner detects idle Firehose delivery streams.
@@ -256,7 +258,9 @@ func (s *FirehoseScanner) Type() ResourceType {
 	return ResourceFirehose
 }
 
-// Scan examines all Firehose delivery streams for zero incoming records.
+// Scan examines all Firehose delivery streams for zero incoming records,
+// checking IncomingRecords for DirectPut streams or DataReadFromKinesisStream.Records
+// for KinesisStreamAsSource streams — WO-244.
 func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	streamNames, err := s.listDeliveryStreams(ctx)
 	if err != nil {
@@ -285,13 +289,58 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 		return result, nil
 	}
 
-	incoming, err := s.metrics.FetchSum(ctx, "AWS/Firehose", "IncomingRecords", "DeliveryStreamName", names, cfg.IdleDays)
-	if err != nil {
-		slog.Warn("Failed to fetch Firehose metrics", "region", s.region, "error", err)
-		return result, nil
+	// AWS/Firehose's IncomingRecords metric only exists for DirectPut delivery
+	// streams; a KinesisStreamAsSource stream never emits it at all, so
+	// checking it unconditionally would silently and permanently read zero
+	// for every Kinesis-sourced stream, regardless of real activity — WO-244.
+	// The correct ingestion signal for that source type is
+	// DataReadFromKinesisStream.Records.
+	var directPutNames, kinesisSourceNames []string
+	for _, name := range names {
+		if s.isKinesisStreamAsSource(ctx, name) {
+			kinesisSourceNames = append(kinesisSourceNames, name)
+		} else {
+			directPutNames = append(directPutNames, name)
+		}
+	}
+
+	// evaluable tracks which streams actually got a successful metric fetch —
+	// a partition whose FetchSum call fails must NOT fall through to being
+	// treated as zero (idle); that would silently flag every stream in the
+	// failed partition as a false positive, worse than the bug this WO fixes.
+	incoming := map[string]float64{}
+	evaluable := make(map[string]bool, len(names))
+	if len(directPutNames) > 0 {
+		sums, err := s.metrics.FetchSum(ctx, "AWS/Firehose", "IncomingRecords", "DeliveryStreamName", directPutNames, cfg.IdleDays)
+		if err != nil {
+			slog.Warn("Failed to fetch Firehose IncomingRecords metrics", "region", s.region, "error", err)
+		} else {
+			for _, name := range directPutNames {
+				evaluable[name] = true
+			}
+			for k, v := range sums {
+				incoming[k] = v
+			}
+		}
+	}
+	if len(kinesisSourceNames) > 0 {
+		sums, err := s.metrics.FetchSum(ctx, "AWS/Firehose", "DataReadFromKinesisStream.Records", "DeliveryStreamName", kinesisSourceNames, cfg.IdleDays)
+		if err != nil {
+			slog.Warn("Failed to fetch Firehose DataReadFromKinesisStream.Records metrics", "region", s.region, "error", err)
+		} else {
+			for _, name := range kinesisSourceNames {
+				evaluable[name] = true
+			}
+			for k, v := range sums {
+				incoming[k] = v
+			}
+		}
 	}
 
 	for _, name := range names {
+		if !evaluable[name] {
+			continue
+		}
 		if incoming[name] > 0 {
 			continue
 		}
@@ -312,6 +361,20 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 	}
 
 	return result, nil
+}
+
+// isKinesisStreamAsSource reports whether the named delivery stream sources
+// from a Kinesis data stream (vs. DirectPut). Defaults to false (DirectPut,
+// today's existing IncomingRecords-based behavior) on any DescribeDeliveryStream
+// error, since that's the same metric this scanner already relied on before
+// WO-244 — a describe failure never makes detection worse than it was.
+func (s *FirehoseScanner) isKinesisStreamAsSource(ctx context.Context, name string) bool {
+	out, err := s.client.DescribeDeliveryStream(ctx, &firehose.DescribeDeliveryStreamInput{DeliveryStreamName: &name})
+	if err != nil || out.DeliveryStreamDescription == nil {
+		slog.Warn("Failed to describe Firehose delivery stream", "stream", name, "error", err)
+		return false
+	}
+	return out.DeliveryStreamDescription.DeliveryStreamType == firehosetypes.DeliveryStreamTypeKinesisStreamAsSource
 }
 
 func (s *FirehoseScanner) listDeliveryStreams(ctx context.Context) ([]string, error) {

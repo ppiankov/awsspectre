@@ -92,7 +92,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `rds:DescribeDBInstances`
 - `lambda:ListFunctions`, `lambda:ListTags`
 - `kinesis:ListStreams`, `kinesis:DescribeStreamSummary`, `kinesis:ListTagsForStream`
-- `firehose:ListDeliveryStreams`, `firehose:ListTagsForDeliveryStream`
+- `firehose:ListDeliveryStreams`, `firehose:ListTagsForDeliveryStream`, `firehose:DescribeDeliveryStream`
 - `sqs:ListQueues`, `sqs:GetQueueAttributes`, `sqs:ListQueueTags`
 - `sns:ListTopics`, `sns:ListSubscriptionsByTopic`, `sns:ListTagsForResource`
 - `logs:DescribeLogGroups`, `logs:ListTagsForResource`
@@ -201,3 +201,4 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **gp2/gp3 pricing coverage.** The gp2→gp3 migration savings estimate is only backed by curated rates for 4 regions; other regions fall back to us-east-1 pricing for both volume types, which may not reflect the real gp2/gp3 delta (or lack thereof) in every region.
 - **CloudWatch Agent-dependent overrides.** Memory- and GPU-aware idle detection for EC2 (`--high-memory-threshold`) both require the CloudWatch Agent's respective plugins (`mem_used_percent`, `utilization_gpu`) to be installed and reporting; without them, detection silently falls back to CPU-only. GPU utilization metrics are NVIDIA-agent-based — Inferentia (inf1/inf2) and Trainium (trn1) instances report via separate Neuron metrics not currently read, so GPU-aware detection is inert for those families today.
 - **CloudTrail-corrected timestamps are best-effort.** `DETACHED_EBS`/`STOPPED_EC2` day-counts prefer a real CloudTrail `DetachVolume`/`StopInstances` event over the CreateTime/LaunchTime-based estimate, but only when `cloudtrail:LookupEvents` is granted and the event falls within CloudTrail's default ~90-day event history (or longer, if a custom trail with extended retention is configured) — accounts without a trail, or events older than that window, fall back to the less-precise CreateTime/LaunchTime estimate.
+- **Firehose metric selection depends on a per-stream describe call.** `KINESIS_FIREHOSE_IDLE` checks a different CloudWatch metric depending on the delivery stream's source type (`IncomingRecords` for DirectPut, `DataReadFromKinesisStream.Records` for a Kinesis-sourced stream), determined via `firehose:DescribeDeliveryStream`. If that call fails for a given stream (e.g. transient throttling — Firehose's control-plane APIs share a low, non-adjustable rate limit), the stream is treated as DirectPut for that scan, which could reproduce a false idle flag on a Kinesis-sourced stream until the next successful scan.
