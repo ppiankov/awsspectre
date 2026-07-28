@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.8] - 2026-07-28
+
+### Fixed
+
+- `SQS_IDLE` no longer flags dead-letter queues that are the `deadLetterTargetArn` of another live queue's `RedrivePolicy` — a healthy, empty DLQ is the correct state, not waste. A live dogfood scan found 7 of 38 `SQS_IDLE` findings were DLQs of this kind. `SQS_NO_CONSUMER` still fires if a referenced DLQ has undelivered messages piling up unconsumed.
+
 ## [0.8.7] - 2026-07-28
 
 ### Fixed
@@ -180,6 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.8]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.8
 [0.8.7]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.7
 [0.8.6]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.6
 [0.8.5]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.5
