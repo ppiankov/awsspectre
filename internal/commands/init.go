@@ -140,6 +140,7 @@ const sampleIAMPolicy = `{
         "kinesis:ListTagsForStream",
         "firehose:ListDeliveryStreams",
         "firehose:ListTagsForDeliveryStream",
+        "firehose:DescribeDeliveryStream",
         "sqs:ListQueues",
         "sqs:GetQueueAttributes",
         "sqs:ListQueueTags",
