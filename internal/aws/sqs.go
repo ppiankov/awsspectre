@@ -119,8 +119,17 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		sentCount := sent[name]
 		receivedCount := received[name]
 
-		// SQS_IDLE: zero sent and zero received
+		// SQS_IDLE: zero sent and zero received. A queue that's the
+		// deadLetterTargetArn of another live queue's RedrivePolicy is
+		// expected to be empty when the source pipeline is healthy — that's
+		// the correct state, not waste, so it's excluded from this check.
+		// (A DLQ that DOES have undelivered messages still triggers
+		// SQS_NO_CONSUMER below, which is a genuinely different, still-actionable
+		// signal — WO-245.)
 		if sentCount == 0 && receivedCount == 0 {
+			if referencedDLQArns[q.arn] {
+				continue
+			}
 			result.Findings = append(result.Findings, Finding{
 				ID:                    FindingSQSIdle,
 				Severity:              SeverityMedium,

@@ -230,6 +230,100 @@ func TestSQSScanner_ExcludedByTag(t *testing.T) {
 	}
 }
 
+func TestSQSScanner_ReferencedDLQ_ZeroMessages_NotFlaggedIdle(t *testing.T) {
+	// WO-245: a live dogfood scan found 7 of 38 SQS_IDLE findings were
+	// structurally-confirmed DLQ targets of other live queues — zero messages
+	// in a healthy DLQ is the correct, expected state, not waste.
+	mock := &mockSQSClient{
+		queueURLs: []string{
+			"https://sqs.us-east-1.amazonaws.com/123/source-queue",
+			"https://sqs.us-east-1.amazonaws.com/123/billing-dlq",
+		},
+		attributes: map[string]map[string]string{
+			"https://sqs.us-east-1.amazonaws.com/123/source-queue": {
+				"QueueArn":      "arn:aws:sqs:us-east-1:123:source-queue",
+				"RedrivePolicy": `{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:123:billing-dlq"}`,
+			},
+			"https://sqs.us-east-1.amazonaws.com/123/billing-dlq": {
+				"QueueArn": "arn:aws:sqs:us-east-1:123:billing-dlq",
+			},
+		},
+	}
+
+	// Both queues report zero sent/received — source-queue is genuinely idle,
+	// billing-dlq is a healthy DLQ that should be excluded.
+	scanner := NewSQSScanner(mock, zeroMetricsFetcher(), "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected exactly 1 finding (source-queue only), got %d: %+v", len(result.Findings), result.Findings)
+	}
+	if result.Findings[0].ResourceID != "source-queue" {
+		t.Fatalf("expected the finding to be for source-queue, not the DLQ, got %s", result.Findings[0].ResourceID)
+	}
+}
+
+func TestSQSScanner_ReferencedDLQ_WithMessages_StillFlaggedNoConsumer(t *testing.T) {
+	// A DLQ that DOES have undelivered messages (real failures landed there)
+	// but nothing consuming them is a genuinely different, still-actionable
+	// signal than "healthy and empty" — SQS_NO_CONSUMER must still fire.
+	mock := &mockSQSClient{
+		queueURLs: []string{
+			"https://sqs.us-east-1.amazonaws.com/123/source-queue2",
+			"https://sqs.us-east-1.amazonaws.com/123/billing-dlq2",
+		},
+		attributes: map[string]map[string]string{
+			"https://sqs.us-east-1.amazonaws.com/123/source-queue2": {
+				"QueueArn":      "arn:aws:sqs:us-east-1:123:source-queue2",
+				"RedrivePolicy": `{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:123:billing-dlq2"}`,
+			},
+			"https://sqs.us-east-1.amazonaws.com/123/billing-dlq2": {
+				"QueueArn": "arn:aws:sqs:us-east-1:123:billing-dlq2",
+			},
+		},
+	}
+
+	callCount := 0
+	metrics := NewMetricsFetcher(&mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			callCount++
+			results := make([]cwtypes.MetricDataResult, 0, len(input.MetricDataQueries))
+			for i := range input.MetricDataQueries {
+				val := 0.0
+				if callCount == 1 { // NumberOfMessagesSent
+					val = 50
+				}
+				results = append(results, cwtypes.MetricDataResult{
+					Id:     awssdk.String(fmt.Sprintf("m%d", i)),
+					Values: []float64{val},
+				})
+			}
+			return &cloudwatch.GetMetricDataOutput{MetricDataResults: results}, nil
+		},
+	})
+
+	scanner := NewSQSScanner(mock, metrics, "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var dlqFinding *Finding
+	for i := range result.Findings {
+		if result.Findings[i].ResourceID == "billing-dlq2" {
+			dlqFinding = &result.Findings[i]
+		}
+	}
+	if dlqFinding == nil {
+		t.Fatalf("expected a finding for billing-dlq2 (messages piling up unconsumed), got %+v", result.Findings)
+	}
+	if dlqFinding.ID != FindingSQSNoConsumer {
+		t.Fatalf("expected SQS_NO_CONSUMER for the DLQ with undelivered messages, got %s", dlqFinding.ID)
+	}
+}
+
 // sqsAttributeName is used to verify the constant values
 func TestSQSScanner_Type(t *testing.T) {
 	scanner := &SQSScanner{}
