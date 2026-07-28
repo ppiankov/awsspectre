@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
@@ -98,6 +99,8 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		tagsByARN = make(map[string]map[string]string)
 	}
 
+	now := time.Now().UTC()
+
 	for _, lb := range lbs {
 		lbARN := deref(lb.LoadBalancerArn)
 		lbName := deref(lb.LoadBalancerName)
@@ -129,11 +132,13 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		// LB is idle: zero healthy targets or zero requests
 		findingID, resourceType, cost := s.classifyLB(lb)
 		severity := SeverityHigh
-		msg := fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %d days", lbName, cfg.IdleDays)
+		window, sufficient := idleWindowDescription(cfg.IdleDays, lb.CreatedTime, now)
+		msg := fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %s", lbName, window)
 		meta := map[string]any{
-			"lb_type": string(lb.Type),
-			"scheme":  string(lb.Scheme),
-			"vpc_id":  deref(lb.VpcId),
+			"lb_type":            string(lb.Type),
+			"scheme":             string(lb.Scheme),
+			"vpc_id":             deref(lb.VpcId),
+			"sufficient_history": sufficient,
 		}
 
 		if isK8sManagedLB(lbTags) {
@@ -141,7 +146,7 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			// Kubernetes Service/Ingress, not deleted directly — down-rank and
 			// correct the guidance instead of suppressing the finding.
 			severity = SeverityMedium
-			msg = fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %d days — managed by a Kubernetes Service/Ingress controller; remove that resource instead of deleting the LB directly", lbName, cfg.IdleDays)
+			msg = fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %s — managed by a Kubernetes Service/Ingress controller; remove that resource instead of deleting the LB directly", lbName, window)
 			meta["controller_managed"] = true
 		}
 

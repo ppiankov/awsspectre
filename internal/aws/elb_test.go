@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -349,6 +350,56 @@ func TestELBScanner_KubernetesManagedLB_DownRanked(t *testing.T) {
 	}
 }
 
+func TestELBScanner_KubernetesManagedLB_RecentlyCreated_BothCaveatsPresent(t *testing.T) {
+	// WO-250: ELB is the only scanner in the idleWindowDescription family with
+	// a second, independent caveat axis (controller-ownership, WO-220) — a
+	// freshly-created, k8s-managed LB must surface BOTH the insufficient-history
+	// disclosure and the Kubernetes-managed guidance in the same message.
+	createTime := time.Now().UTC().Add(-11 * time.Minute)
+	arn := "arn:aws:elasticloadbalancing:us-east-1:123456:loadbalancer/net/k8s-svc-fresh/abc123"
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String(arn),
+				LoadBalancerName: awssdk.String("k8s-svc-fresh"),
+				Type:             elbtypes.LoadBalancerTypeEnumNetwork,
+				CreatedTime:      &createTime,
+			},
+		},
+		tagsByARN: map[string][]elbtypes.Tag{
+			arn: {{Key: awssdk.String("elbv2.k8s.aws/cluster"), Value: awssdk.String("prod")}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "insufficient running history") {
+		t.Fatalf("expected the insufficient-history caveat to be present, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "Kubernetes") {
+		t.Fatalf("expected the Kubernetes-managed caveat to be present, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != false {
+		t.Fatalf("expected sufficient_history=false, got %v", f.Metadata["sufficient_history"])
+	}
+	if f.Metadata["controller_managed"] != true {
+		t.Fatalf("expected controller_managed=true, got %v", f.Metadata["controller_managed"])
+	}
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected down-ranked medium severity, got %s", f.Severity)
+	}
+}
+
 func TestELBScanner_EKSNativeManagedLB_DownRanked(t *testing.T) {
 	// WO-234: EKS's native/Auto Mode load balancing integration tags LBs with
 	// service.eks.amazonaws.com/* and eks:eks-cluster-name, a distinct
@@ -505,6 +556,133 @@ func TestELBScanner_UntaggedLB_NotDownRanked(t *testing.T) {
 	}
 	if _, ok := f.Metadata["controller_managed"]; ok {
 		t.Fatalf("expected no controller_managed metadata key, got %v", f.Metadata["controller_managed"])
+	}
+}
+
+func TestELBScanner_IdleALB_RecentlyCreated_InsufficientHistoryMessage(t *testing.T) {
+	// WO-250: same defect class as WO-236 (EC2) / WO-249 (RDS) — an LB
+	// created less than cfg.IdleDays ago must not have its finding message
+	// claim full window confidence it doesn't have.
+	createTime := time.Now().UTC().Add(-11 * time.Minute)
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String("arn:aws:elasticloadbalancing:us-east-1:123456:loadbalancer/app/freshly-created-alb/abc123"),
+				LoadBalancerName: awssdk.String("freshly-created-alb"),
+				Type:             elbtypes.LoadBalancerTypeEnumApplication,
+				Scheme:           elbtypes.LoadBalancerSchemeEnumInternetFacing,
+				VpcId:            awssdk.String("vpc-123"),
+				CreatedTime:      &createTime,
+			},
+		},
+		targetGroups: []elbtypes.TargetGroup{
+			{TargetGroupArn: awssdk.String("arn:tg/my-tg/123")},
+		},
+		targetHealths: []elbtypes.TargetHealthDescription{
+			{TargetHealth: &elbtypes.TargetHealth{State: elbtypes.TargetHealthStateEnumUnhealthy}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected the finding to still surface (evidence, not suppressed), got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected message to NOT claim full 7-day coverage for an LB created 11 minutes ago, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "insufficient running history") {
+		t.Fatalf("expected message to disclose insufficient history, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != false {
+		t.Fatalf("expected sufficient_history=false for a freshly-created LB, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestELBScanner_IdleALB_AboveThreshold_UsesFullWindowMessage(t *testing.T) {
+	createTime := time.Now().UTC().Add(-30 * 24 * time.Hour) // 30 days ago
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String("arn:aws:elasticloadbalancing:us-east-1:123456:loadbalancer/app/long-lived-alb/abc123"),
+				LoadBalancerName: awssdk.String("long-lived-alb"),
+				Type:             elbtypes.LoadBalancerTypeEnumApplication,
+				Scheme:           elbtypes.LoadBalancerSchemeEnumInternetFacing,
+				VpcId:            awssdk.String("vpc-123"),
+				CreatedTime:      &createTime,
+			},
+		},
+		targetGroups: []elbtypes.TargetGroup{
+			{TargetGroupArn: awssdk.String("arn:tg/my-tg/123")},
+		},
+		targetHealths: []elbtypes.TargetHealthDescription{
+			{TargetHealth: &elbtypes.TargetHealth{State: elbtypes.TargetHealthStateEnumUnhealthy}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected full-window message for a 30-day-old LB, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true for a 30-day-old LB, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestELBScanner_IdleALB_NoCreateTime_DefaultsToSufficientHistory(t *testing.T) {
+	mock := &mockELBClient{
+		lbs: []elbtypes.LoadBalancer{
+			{
+				LoadBalancerArn:  awssdk.String("arn:aws:elasticloadbalancing:us-east-1:123456:loadbalancer/app/unknown-age-alb/abc123"),
+				LoadBalancerName: awssdk.String("unknown-age-alb"),
+				Type:             elbtypes.LoadBalancerTypeEnumApplication,
+				Scheme:           elbtypes.LoadBalancerSchemeEnumInternetFacing,
+				VpcId:            awssdk.String("vpc-123"),
+			},
+		},
+		targetGroups: []elbtypes.TargetGroup{
+			{TargetGroupArn: awssdk.String("arn:tg/my-tg/123")},
+		},
+		targetHealths: []elbtypes.TargetHealthDescription{
+			{TargetHealth: &elbtypes.TargetHealth{State: elbtypes.TargetHealthStateEnumUnhealthy}},
+		},
+	}
+
+	metrics := newMockMetricsFetcher(nil)
+	scanner := NewELBScanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected full-window message when CreatedTime is unset, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true when CreatedTime is unset, got %v", f.Metadata["sufficient_history"])
 	}
 }
 
