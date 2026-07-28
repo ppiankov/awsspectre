@@ -8,6 +8,7 @@ import (
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	cttypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -806,6 +807,117 @@ func TestEC2Scanner_LowCPU_NoCWAgent_FallbackIdle(t *testing.T) {
 	f := result.Findings[0]
 	if f.Metadata["has_mem_metrics"] != false {
 		t.Fatalf("expected has_mem_metrics false, got %v", f.Metadata["has_mem_metrics"])
+	}
+}
+
+func TestEC2Scanner_StoppedInstance_UsesCloudTrailStopTime_BelowThreshold(t *testing.T) {
+	// WO-243: a live dogfood account showed a LaunchTime 60 days in the past,
+	// but the real CloudTrail StopInstances event was only 19 days before the
+	// scan — below the 30-day StoppedThresholdDays default. Using LaunchTime
+	// alone wrongly fires the finding; the CloudTrail event correctly
+	// suppresses it.
+	launchTime := time.Now().UTC().Add(-60 * 24 * time.Hour)
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-recentlystopped001"),
+						InstanceType: ec2types.InstanceTypeM5Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameStopped},
+						LaunchTime:   &launchTime,
+					},
+				},
+			},
+		},
+	}
+	realStop := time.Now().UTC().Add(-19 * 24 * time.Hour)
+	ct := &mockCloudTrailClient{events: []cttypes.Event{newMockEvent("StopInstances", realStop)}}
+
+	metrics := newEC2MockMetricsFetcher(nil, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+	scanner.SetCloudTrailClient(ct)
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no STOPPED_EC2 finding — real stop was only 19 days ago, below the 30-day threshold, got %d findings", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_StoppedInstance_AboveThreshold_UsesCloudTrailDayCount(t *testing.T) {
+	// A LaunchTime ~100 days ago with a real CloudTrail StopInstances event
+	// ~40 days before the scan — still above the 30-day threshold either way,
+	// so the finding fires in both cases, but the reported days_stopped must
+	// reflect the CloudTrail-derived value (40), not the LaunchTime-derived
+	// one (100).
+	launchTime := time.Now().UTC().Add(-100 * 24 * time.Hour)
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-aboveThreshold001"),
+						InstanceType: ec2types.InstanceTypeM5Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameStopped},
+						LaunchTime:   &launchTime,
+					},
+				},
+			},
+		},
+	}
+	stopTime := time.Now().UTC().Add(-40 * 24 * time.Hour)
+	ct := &mockCloudTrailClient{events: []cttypes.Event{newMockEvent("StopInstances", stopTime)}}
+
+	metrics := newEC2MockMetricsFetcher(nil, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+	scanner.SetCloudTrailClient(ct)
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+	if days, _ := result.Findings[0].Metadata["days_stopped"].(int); days < 39 || days > 41 {
+		t.Fatalf("expected days_stopped ~40 from CloudTrail (not ~100 from LaunchTime), got %v", result.Findings[0].Metadata["days_stopped"])
+	}
+}
+
+func TestEC2Scanner_StoppedInstance_CloudTrailNoMatch_FallsBackToLaunchTime(t *testing.T) {
+	launchTime := time.Now().UTC().Add(-60 * 24 * time.Hour)
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-nomatch001"),
+						InstanceType: ec2types.InstanceTypeM5Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameStopped},
+						LaunchTime:   &launchTime,
+					},
+				},
+			},
+		},
+	}
+	ct := &mockCloudTrailClient{events: nil} // no matching event found
+
+	metrics := newEC2MockMetricsFetcher(nil, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+	scanner.SetCloudTrailClient(ct)
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected fallback to LaunchTime-based detection, got %d findings", len(result.Findings))
+	}
+	if days, _ := result.Findings[0].Metadata["days_stopped"].(int); days < 59 || days > 61 {
+		t.Fatalf("expected days_stopped ~60 from LaunchTime fallback, got %v", result.Findings[0].Metadata["days_stopped"])
 	}
 }
 

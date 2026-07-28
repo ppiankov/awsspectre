@@ -20,13 +20,20 @@ type EBSAPI interface {
 
 // EBSScanner detects detached EBS volumes.
 type EBSScanner struct {
-	client EBSAPI
-	region string
+	client     EBSAPI
+	region     string
+	cloudTrail CloudTrailAPI
 }
 
 // NewEBSScanner creates a scanner for EBS volumes.
 func NewEBSScanner(client EBSAPI, region string) *EBSScanner {
 	return &EBSScanner{client: client, region: region}
+}
+
+// SetCloudTrailClient enables CloudTrail-backed detach-time lookup (WO-242).
+// Optional: without it, DETACHED_EBS falls back to its CreateTime-based estimate.
+func (s *EBSScanner) SetCloudTrailClient(client CloudTrailAPI) {
+	s.cloudTrail = client
 }
 
 // Type returns the resource type.
@@ -54,11 +61,25 @@ func (s *EBSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		sizeGiB := int(derefInt32(vol.Size))
 
 		if vol.State == ec2types.VolumeStateAvailable {
-			// Use CreateTime as a proxy for when it became detached
-			// (accurate for volumes that were created detached or detached recently)
+			// CreateTime is the fallback proxy for when the volume became
+			// detached (accurate for volumes created detached or detached
+			// recently); prefer the real CloudTrail DetachVolume event when
+			// available, since a long-lived volume that recently detached
+			// after months attached would otherwise be wildly overcounted
+			// — WO-242.
 			if createTime := vol.CreateTime; createTime != nil {
-				daysSinceCreate := int(now.Sub(*createTime).Hours() / 24)
-				if daysSinceCreate >= detachedThresholdDays {
+				// The real detach time can only be >= CreateTime, so the
+				// CloudTrail-corrected day count can only be <= this naive
+				// estimate — only look it up when the naive estimate already
+				// clears the threshold, since a lookup can never turn a
+				// below-threshold volume into an above-threshold one.
+				daysDetached := int(now.Sub(*createTime).Hours() / 24)
+				if daysDetached >= detachedThresholdDays {
+					if detachTime, ok := lookupMostRecentEventTime(ctx, s.cloudTrail, volID, "DetachVolume"); ok {
+						daysDetached = int(now.Sub(detachTime).Hours() / 24)
+					}
+				}
+				if daysDetached >= detachedThresholdDays {
 					cost := pricing.MonthlyEBSCost(volumeType, sizeGiB, s.region)
 					result.Findings = append(result.Findings, Finding{
 						ID:                    FindingDetachedEBS,
@@ -67,12 +88,12 @@ func (s *EBSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						ResourceID:            volID,
 						ResourceName:          volumeName(vol),
 						Region:                s.region,
-						Message:               fmt.Sprintf("Detached %d days, %s %d GiB", daysSinceCreate, volumeType, sizeGiB),
+						Message:               fmt.Sprintf("Detached %d days, %s %d GiB", daysDetached, volumeType, sizeGiB),
 						EstimatedMonthlyWaste: cost,
 						Metadata: map[string]any{
 							"volume_type":       volumeType,
 							"size_gib":          sizeGiB,
-							"days_detached":     daysSinceCreate,
+							"days_detached":     daysDetached,
 							"availability_zone": deref(vol.AvailabilityZone),
 						},
 					})

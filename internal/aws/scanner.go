@@ -8,6 +8,7 @@ import (
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -234,10 +235,17 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 	sqsClient := sqs.NewFromConfig(cfg)
 	snsClient := sns.NewFromConfig(cfg)
 	logsClient := cloudwatchlogs.NewFromConfig(cfg)
+	cloudtrailClient := cloudtrail.NewFromConfig(cfg)
+
+	ec2Scanner := NewEC2Scanner(ec2Client, metrics, region)
+	ec2Scanner.SetCloudTrailClient(cloudtrailClient)
+
+	ebsScanner := NewEBSScanner(ec2Client, region)
+	ebsScanner.SetCloudTrailClient(cloudtrailClient)
 
 	return []ResourceScanner{
-		NewEC2Scanner(ec2Client, metrics, region),
-		NewEBSScanner(ec2Client, region),
+		ec2Scanner,
+		ebsScanner,
 		NewEIPScanner(ec2Client, region),
 		NewSnapshotScanner(ec2Client, region),
 		NewSecurityGroupScanner(ec2Client, region),

@@ -151,6 +151,7 @@ const sampleIAMPolicy = `{
         "cloudwatch:GetMetricData",
         "logs:DescribeLogGroups",
         "logs:ListTagsForResource",
+        "cloudtrail:LookupEvents",
         "sts:GetCallerIdentity"
       ],
       "Resource": "*"
