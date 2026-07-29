@@ -5,6 +5,14 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.9] - 2026-07-29
+
+### Fixed
+
+- `IDLE_RDS` no longer overclaims lookback-window confidence for recently-created DB instances — the finding message now discloses insufficient running history instead of claiming full-window coverage it doesn't have, matching the same fix already shipped for `IDLE_EC2`.
+- `IDLE_ALB`/`IDLE_NLB` no longer overclaims lookback-window confidence for recently-created load balancers, including the Kubernetes-managed-caveat message variant.
+- `IDLE_NAT_GATEWAY`'s zero-bytes message no longer overclaims lookback-window confidence for recently-created gateways. More importantly, `LOW_TRAFFIC_NAT_GATEWAY`'s monthly-traffic extrapolation now uses the gateway's actual observed age instead of always assuming the full configured lookback window — for a gateway younger than that window, the old formula understated real monthly traffic and could misclassify an actively-busy young gateway as low-traffic.
+
 ## [0.8.8] - 2026-07-28
 
 ### Fixed
@@ -186,6 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.9]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.9
 [0.8.8]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.8
 [0.8.7]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.7
 [0.8.6]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.6
