@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -61,6 +62,8 @@ func (s *NATGatewayScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 		return result, nil
 	}
 
+	now := time.Now().UTC()
+
 	// Fetch bytes out metric
 	bytesOut, err := s.metrics.FetchSum(ctx, "AWS/NATGateway", "BytesOutToDestination", "NatGatewayId", ids, cfg.IdleDays)
 	if err != nil {
@@ -88,8 +91,11 @@ func (s *NATGatewayScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 			"state":     string(gw.State),
 		}
 
+		window, sufficient := idleWindowDescription(cfg.IdleDays, gw.CreateTime, now)
+
 		if totalBytes == 0 {
 			cost := pricing.MonthlyNATGatewayCost(s.region)
+			baseMeta["sufficient_history"] = sufficient
 			result.Findings = append(result.Findings, Finding{
 				ID:                    FindingIdleNATGateway,
 				Severity:              SeverityHigh,
@@ -97,15 +103,31 @@ func (s *NATGatewayScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 				ResourceID:            id,
 				ResourceName:          name,
 				Region:                s.region,
-				Message:               fmt.Sprintf("Zero bytes processed over %d days", cfg.IdleDays),
+				Message:               fmt.Sprintf("Zero bytes processed over %s", window),
 				EstimatedMonthlyWaste: cost,
 				Metadata:              baseMeta,
 			})
 			continue
 		}
 
-		// Low-traffic check: extrapolate to monthly and compare to threshold
-		monthlyBytes := totalBytes * (30.0 / float64(cfg.IdleDays))
+		// Low-traffic check: extrapolate to monthly and compare to threshold.
+		// totalBytes only reflects real observed traffic since the gateway was
+		// created (CloudWatch has no data before that) — for a gateway younger
+		// than cfg.IdleDays, dividing by the full configured window understates
+		// the real traffic rate, since the same bytes were actually seen over a
+		// shorter period. Use whichever is smaller: the configured window, or
+		// the gateway's actual observed age — WO-251.
+		observedDays := float64(cfg.IdleDays)
+		if gw.CreateTime != nil {
+			age := now.Sub(*gw.CreateTime)
+			if age < 0 {
+				age = 0 // clock skew — treat as no observed history
+			}
+			if ageDays := age.Hours() / 24; ageDays < observedDays {
+				observedDays = ageDays
+			}
+		}
+		monthlyBytes := totalBytes * (30.0 / observedDays)
 		monthlyGB := monthlyBytes / (1024 * 1024 * 1024)
 
 		if cfg.NATGWLowTrafficGB > 0 && monthlyGB < cfg.NATGWLowTrafficGB {
@@ -123,6 +145,8 @@ func (s *NATGatewayScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResu
 				"estimated_monthly_gb": monthlyGB,
 				"gateway_monthly_cost": gatewayCost,
 				"data_processing_cost": dataCost,
+				"observed_days":        observedDays,
+				"sufficient_history":   sufficient,
 			}
 
 			result.Findings = append(result.Findings, Finding{
