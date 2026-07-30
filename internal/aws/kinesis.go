@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
 	firehosetypes "github.com/aws/aws-sdk-go-v2/service/firehose/types"
@@ -42,6 +43,7 @@ type streamInfo struct {
 	shardCount int32
 	mode       string
 	arn        string
+	createTime *time.Time
 }
 
 // Scan examines all Kinesis streams for idle or over-provisioned shards.
@@ -101,6 +103,8 @@ func (s *KinesisScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult,
 		// Non-fatal: over-provisioned check will be skipped
 	}
 
+	now := time.Now().UTC()
+
 	for _, info := range streams {
 		incoming := incomingRecords[info.name]
 		reading := getRecords[info.name]
@@ -111,6 +115,8 @@ func (s *KinesisScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult,
 			shardCost = pricing.MonthlyKinesisShardCost(int(info.shardCount), s.region)
 		}
 
+		window, sufficient := idleWindowDescription(cfg.IdleDays, info.createTime, now)
+
 		// KINESIS_STREAM_IDLE: zero records in and out
 		if incoming == 0 && reading == 0 {
 			result.Findings = append(result.Findings, Finding{
@@ -120,21 +126,38 @@ func (s *KinesisScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult,
 				ResourceID:            info.name,
 				ResourceName:          info.arn,
 				Region:                s.region,
-				Message:               fmt.Sprintf("Zero records in/out over %d days (%d shards, %s mode)", cfg.IdleDays, info.shardCount, info.mode),
+				Message:               fmt.Sprintf("Zero records in/out over %s (%d shards, %s mode)", window, info.shardCount, info.mode),
 				EstimatedMonthlyWaste: shardCost,
 				Hygiene:               !isProvisioned, // WO-197: on-demand idle streams have no shard cost but must stay visible.
 				Metadata: map[string]any{
-					"shard_count": info.shardCount,
-					"stream_mode": info.mode,
+					"shard_count":        info.shardCount,
+					"stream_mode":        info.mode,
+					"sufficient_history": sufficient,
 				},
 			})
 			continue
 		}
 
-		// KINESIS_OVER_PROVISIONED: low shard utilization (provisioned mode only)
+		// KINESIS_OVER_PROVISIONED: low shard utilization (provisioned mode only).
+		// totalBytes only reflects real observed traffic since the stream was
+		// created — for a stream younger than cfg.IdleDays, dividing by the full
+		// configured window understates the real utilization, since the same
+		// bytes were actually seen over a shorter period. Use whichever is
+		// smaller: the configured window, or the stream's actual observed
+		// age — WO-252 (same fix shape as WO-251's NAT Gateway extrapolation).
 		if isProvisioned && incomingBytes != nil && info.shardCount > 0 {
 			totalBytes := incomingBytes[info.name]
-			lookbackSeconds := float64(cfg.IdleDays) * 86400
+			observedDays := float64(cfg.IdleDays)
+			if info.createTime != nil {
+				age := now.Sub(*info.createTime)
+				if age < 0 {
+					age = 0 // clock skew — treat as no observed history
+				}
+				if ageDays := age.Hours() / 24; ageDays < observedDays {
+					observedDays = ageDays
+				}
+			}
+			lookbackSeconds := observedDays * 86400
 			avgBytesPerSec := totalBytes / lookbackSeconds
 			// Each shard handles 1 MB/s (1048576 bytes/s)
 			capacityBytesPerSec := float64(info.shardCount) * 1048576
@@ -148,13 +171,15 @@ func (s *KinesisScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult,
 					ResourceID:            info.name,
 					ResourceName:          info.arn,
 					Region:                s.region,
-					Message:               fmt.Sprintf("Shard utilization %.1f%% over %d days (%d shards)", capacityPct, cfg.IdleDays, info.shardCount),
+					Message:               fmt.Sprintf("Shard utilization %.1f%% over %s (%d shards)", capacityPct, window, info.shardCount),
 					EstimatedMonthlyWaste: shardCost,
 					Metadata: map[string]any{
 						"shard_count":                info.shardCount,
 						"stream_mode":                info.mode,
 						"avg_incoming_bytes_per_sec": avgBytesPerSec,
 						"capacity_pct":               capacityPct,
+						"observed_days":              observedDays,
+						"sufficient_history":         sufficient,
 					},
 				})
 			}
@@ -202,6 +227,7 @@ func (s *KinesisScanner) describeStream(ctx context.Context, name string) (strea
 		shardCount: shardCount,
 		mode:       mode,
 		arn:        deref(summary.StreamARN),
+		createTime: summary.StreamCreationTimestamp,
 	}, nil
 }
 
@@ -296,8 +322,11 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 	// The correct ingestion signal for that source type is
 	// DataReadFromKinesisStream.Records.
 	var directPutNames, kinesisSourceNames []string
+	createTimeByName := make(map[string]*time.Time, len(names))
 	for _, name := range names {
-		if s.isKinesisStreamAsSource(ctx, name) {
+		isKinesisSource, createTime := s.describeDeliveryStream(ctx, name)
+		createTimeByName[name] = createTime
+		if isKinesisSource {
 			kinesisSourceNames = append(kinesisSourceNames, name)
 		} else {
 			directPutNames = append(directPutNames, name)
@@ -337,6 +366,8 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 		}
 	}
 
+	now := time.Now().UTC()
+
 	for _, name := range names {
 		if !evaluable[name] {
 			continue
@@ -345,17 +376,20 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 			continue
 		}
 
+		window, sufficient := idleWindowDescription(cfg.IdleDays, createTimeByName[name], now)
+
 		result.Findings = append(result.Findings, Finding{
 			ID:                    FindingKinesisFirehoseIdle,
 			Severity:              SeverityMedium,
 			ResourceType:          ResourceFirehose,
 			ResourceID:            name,
 			Region:                s.region,
-			Message:               fmt.Sprintf("Zero incoming records over %d days", cfg.IdleDays),
+			Message:               fmt.Sprintf("Zero incoming records over %s", window),
 			EstimatedMonthlyWaste: 0,
 			Hygiene:               true, // WO-194: zero-waste Firehose hygiene findings stay visible.
 			Metadata: map[string]any{
 				"delivery_stream_name": name,
+				"sufficient_history":   sufficient,
 			},
 		})
 	}
@@ -363,18 +397,20 @@ func (s *FirehoseScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult
 	return result, nil
 }
 
-// isKinesisStreamAsSource reports whether the named delivery stream sources
-// from a Kinesis data stream (vs. DirectPut). Defaults to false (DirectPut,
-// today's existing IncomingRecords-based behavior) on any DescribeDeliveryStream
-// error, since that's the same metric this scanner already relied on before
-// WO-244 — a describe failure never makes detection worse than it was.
-func (s *FirehoseScanner) isKinesisStreamAsSource(ctx context.Context, name string) bool {
+// describeDeliveryStream reports whether the named delivery stream sources
+// from a Kinesis data stream (vs. DirectPut) and its creation timestamp.
+// Defaults to (false, nil) on any DescribeDeliveryStream error, since false
+// (DirectPut) is the same metric this scanner already relied on before
+// WO-244, and a nil createTime defaults idleWindowDescription to full
+// confidence — a describe failure never makes detection worse than it was.
+func (s *FirehoseScanner) describeDeliveryStream(ctx context.Context, name string) (isKinesisSource bool, createTime *time.Time) {
 	out, err := s.client.DescribeDeliveryStream(ctx, &firehose.DescribeDeliveryStreamInput{DeliveryStreamName: &name})
 	if err != nil || out.DeliveryStreamDescription == nil {
 		slog.Warn("Failed to describe Firehose delivery stream", "stream", name, "error", err)
-		return false
+		return false, nil
 	}
-	return out.DeliveryStreamDescription.DeliveryStreamType == firehosetypes.DeliveryStreamTypeKinesisStreamAsSource
+	desc := out.DeliveryStreamDescription
+	return desc.DeliveryStreamType == firehosetypes.DeliveryStreamTypeKinesisStreamAsSource, desc.CreateTimestamp
 }
 
 func (s *FirehoseScanner) listDeliveryStreams(ctx context.Context) ([]string, error) {
