@@ -5,6 +5,13 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.10] - 2026-07-30
+
+### Fixed
+
+- `KINESIS_STREAM_IDLE` and `KINESIS_OVER_PROVISIONED` no longer overclaim lookback-window confidence for recently-created streams. More importantly, `KINESIS_OVER_PROVISIONED`'s shard-utilization calculation now uses the stream's actual observed age instead of always assuming the full configured lookback window — for a stream younger than that window, the old formula understated real utilization and could misclassify an actively-busy young stream as under-provisioned.
+- `KINESIS_FIREHOSE_IDLE` no longer overclaims lookback-window confidence for recently-created delivery streams.
+
 ## [0.8.9] - 2026-07-29
 
 ### Fixed
@@ -194,6 +201,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.10]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.10
 [0.8.9]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.9
 [0.8.8]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.8
 [0.8.7]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.7
