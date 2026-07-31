@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -371,6 +372,185 @@ func TestEBSScanner_DetachedVolume_CloudTrailNoMatch_FallsBackToCreateTime(t *te
 	}
 	if days, _ := result.Findings[0].Metadata["days_detached"].(int); days < 29 || days > 31 {
 		t.Fatalf("expected days_detached ~30 from CreateTime fallback, got %v", result.Findings[0].Metadata["days_detached"])
+	}
+}
+
+func TestEBSScanner_CSIManagedVolume_WithPVCInfo_AnnotatedGuidance(t *testing.T) {
+	// WO-231: same defect class as WO-220 for load balancers. A detached
+	// volume carrying AWS EBS CSI driver tags must keep the finding visible
+	// (it can still be genuine waste) but correct the guidance to verify via
+	// kubectl before deleting directly, naming the PVC/namespace from tags.
+	created := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	mock := &mockEBSClient{
+		volumes: []ec2types.Volume{
+			{
+				VolumeId:   awssdk.String("vol-csimanaged001"),
+				VolumeType: ec2types.VolumeTypeGp3,
+				State:      ec2types.VolumeStateAvailable,
+				Size:       awssdk.Int32(100),
+				CreateTime: &created,
+				Tags: []ec2types.Tag{
+					{Key: awssdk.String("kubernetes.io/created-for/pvc/name"), Value: awssdk.String("data-pvc")},
+					{Key: awssdk.String("kubernetes.io/created-for/pvc/namespace"), Value: awssdk.String("platform")},
+					{Key: awssdk.String("ebs.csi.aws.com/cluster"), Value: awssdk.String("true")},
+				},
+			},
+		},
+	}
+
+	scanner := NewEBSScanner(mock, "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected the finding to still surface (evidence, not suppressed), got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityHigh {
+		t.Fatalf("expected severity to remain high (still visible waste), got %s", f.Severity)
+	}
+	if !strings.Contains(f.Message, `PVC "data-pvc" in namespace "platform"`) {
+		t.Fatalf("expected message to name the PVC and namespace, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "kubectl get pv") {
+		t.Fatalf("expected message to advise verifying with kubectl before deleting, got %q", f.Message)
+	}
+	if f.Metadata["csi_managed"] != true {
+		t.Fatalf("expected csi_managed=true in metadata, got %v", f.Metadata["csi_managed"])
+	}
+	if f.Metadata["pvc_name"] != "data-pvc" || f.Metadata["pvc_namespace"] != "platform" {
+		t.Fatalf("expected pvc_name/pvc_namespace in metadata, got %v", f.Metadata)
+	}
+	if f.RemediationPath != RemediationNeedsReview {
+		t.Fatalf("expected RemediationPath=needs_review for a CSI-managed volume, got %q", f.RemediationPath)
+	}
+}
+
+func TestEBSScanner_CSIManagedVolume_ClusterTagOnly_GenericGuidance(t *testing.T) {
+	// A volume with only the CSI cluster tag (no PVC name/namespace tags)
+	// still gets the corrected generic guidance, without naming a PVC it
+	// doesn't have information about.
+	created := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	mock := &mockEBSClient{
+		volumes: []ec2types.Volume{
+			{
+				VolumeId:   awssdk.String("vol-csiclusteronly001"),
+				VolumeType: ec2types.VolumeTypeGp3,
+				State:      ec2types.VolumeStateAvailable,
+				Size:       awssdk.Int32(100),
+				CreateTime: &created,
+				Tags: []ec2types.Tag{
+					{Key: awssdk.String("ebs.csi.aws.com/cluster"), Value: awssdk.String("true")},
+				},
+			},
+		},
+	}
+
+	scanner := NewEBSScanner(mock, "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "provisioned by a Kubernetes PersistentVolume") {
+		t.Fatalf("expected generic Kubernetes-managed guidance, got %q", f.Message)
+	}
+	if strings.Contains(f.Message, "PVC ") {
+		t.Fatalf("expected no PVC name mentioned when tags don't provide one, got %q", f.Message)
+	}
+	if _, ok := f.Metadata["pvc_name"]; ok {
+		t.Fatalf("expected no pvc_name metadata key when the tag isn't present, got %v", f.Metadata["pvc_name"])
+	}
+	if f.RemediationPath != RemediationNeedsReview {
+		t.Fatalf("expected RemediationPath=needs_review, got %q", f.RemediationPath)
+	}
+}
+
+func TestEBSScanner_CSIManagedVolume_PVCTagsOnly_NoClusterTag(t *testing.T) {
+	// The older in-tree AWS EBS provisioner sets the kubernetes.io/created-for/*
+	// tags without necessarily also setting the CSI-driver-specific
+	// ebs.csi.aws.com/cluster tag. This must be recognized on its own, not
+	// only when paired with the cluster tag.
+	created := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	mock := &mockEBSClient{
+		volumes: []ec2types.Volume{
+			{
+				VolumeId:   awssdk.String("vol-intreeprovisioner001"),
+				VolumeType: ec2types.VolumeTypeGp3,
+				State:      ec2types.VolumeStateAvailable,
+				Size:       awssdk.Int32(100),
+				CreateTime: &created,
+				Tags: []ec2types.Tag{
+					{Key: awssdk.String("kubernetes.io/created-for/pvc/name"), Value: awssdk.String("legacy-pvc")},
+					{Key: awssdk.String("kubernetes.io/created-for/pvc/namespace"), Value: awssdk.String("legacy-ns")},
+				},
+			},
+		},
+	}
+
+	scanner := NewEBSScanner(mock, "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, `PVC "legacy-pvc" in namespace "legacy-ns"`) {
+		t.Fatalf("expected message to name the PVC/namespace from in-tree-provisioner tags alone, got %q", f.Message)
+	}
+	if f.Metadata["csi_managed"] != true {
+		t.Fatalf("expected csi_managed=true without the cluster tag present, got %v", f.Metadata["csi_managed"])
+	}
+	if f.RemediationPath != RemediationNeedsReview {
+		t.Fatalf("expected RemediationPath=needs_review, got %q", f.RemediationPath)
+	}
+}
+
+func TestEBSScanner_NonCSIVolume_UnchangedMessageAndRemediation(t *testing.T) {
+	// A plain detached volume with no CSI tags must be completely unaffected
+	// by this fix — same message shape, same RemediationPath default as
+	// before WO-231.
+	created := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	mock := &mockEBSClient{
+		volumes: []ec2types.Volume{
+			{
+				VolumeId:   awssdk.String("vol-plain001"),
+				VolumeType: ec2types.VolumeTypeGp3,
+				State:      ec2types.VolumeStateAvailable,
+				Size:       awssdk.Int32(100),
+				CreateTime: &created,
+				Tags:       []ec2types.Tag{{Key: awssdk.String("Name"), Value: awssdk.String("plain-volume")}},
+			},
+		},
+	}
+
+	scanner := NewEBSScanner(mock, "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Message != "Detached 30 days, gp3 100 GiB" {
+		t.Fatalf("expected unchanged message for a non-CSI volume, got %q", f.Message)
+	}
+	if _, ok := f.Metadata["csi_managed"]; ok {
+		t.Fatalf("expected no csi_managed metadata key for a non-CSI volume, got %v", f.Metadata["csi_managed"])
+	}
+	if f.EffectiveRemediationPath() != RemediationDirect {
+		t.Fatalf("expected RemediationPath to resolve to direct for a non-CSI volume, got %q", f.EffectiveRemediationPath())
 	}
 }
 

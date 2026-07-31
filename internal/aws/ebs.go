@@ -13,6 +13,31 @@ import (
 // detachedThresholdDays is the minimum days a volume must be detached to be flagged.
 const detachedThresholdDays = 7
 
+// csiEBSVolumeTagKeys are tags the AWS EBS CSI driver (or the older in-tree
+// AWS provisioner) sets on a volume it dynamically provisioned for a
+// Kubernetes PersistentVolume. Each is exclusively set by that provisioning
+// path — unlike WO-220's eks:eks-cluster-name tag, none of these are shared
+// with an unrelated purpose, so any one alone is a safe, sufficient signal
+// (no pairing required) — WO-231.
+const (
+	csiPVCNameTagKey      = "kubernetes.io/created-for/pvc/name"
+	csiPVCNamespaceTagKey = "kubernetes.io/created-for/pvc/namespace"
+	csiPVNameTagKey       = "kubernetes.io/created-for/pv/name"
+	csiClusterTagKey      = "ebs.csi.aws.com/cluster"
+)
+
+// isCSIManagedEBSVolume reports whether tags mark this volume as provisioned
+// by the AWS EBS CSI driver for a Kubernetes PersistentVolume, plus the PVC
+// name/namespace when present for triage guidance.
+func isCSIManagedEBSVolume(tags map[string]string) (managed bool, pvcName, pvcNamespace string) {
+	pvcName = tags[csiPVCNameTagKey]
+	pvcNamespace = tags[csiPVCNamespaceTagKey]
+	_, hasCluster := tags[csiClusterTagKey]
+	_, hasPVName := tags[csiPVNameTagKey]
+	managed = hasCluster || hasPVName || pvcName != "" || pvcNamespace != ""
+	return managed, pvcName, pvcNamespace
+}
+
 // EBSAPI is the minimal interface for EBS volume operations.
 type EBSAPI interface {
 	DescribeVolumes(ctx context.Context, input *ec2.DescribeVolumesInput, opts ...func(*ec2.Options)) (*ec2.DescribeVolumesOutput, error)
@@ -53,7 +78,8 @@ func (s *EBSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 
 	for _, vol := range volumes {
 		volID := deref(vol.VolumeId)
-		if cfg.Exclude.ShouldExclude(volID, ec2TagsToMap(vol.Tags)) {
+		tags := ec2TagsToMap(vol.Tags)
+		if cfg.Exclude.ShouldExclude(volID, tags) {
 			continue
 		}
 
@@ -81,6 +107,33 @@ func (s *EBSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				}
 				if daysDetached >= detachedThresholdDays {
 					cost := pricing.MonthlyEBSCost(volumeType, sizeGiB, s.region)
+					msg := fmt.Sprintf("Detached %d days, %s %d GiB", daysDetached, volumeType, sizeGiB)
+					remediationPath := RemediationDirect
+					meta := map[string]any{
+						"volume_type":       volumeType,
+						"size_gib":          sizeGiB,
+						"days_detached":     daysDetached,
+						"availability_zone": deref(vol.AvailabilityZone),
+					}
+
+					if csiManaged, pvcName, pvcNamespace := isCSIManagedEBSVolume(tags); csiManaged {
+						// WO-231: same defect class as WO-220 for load balancers.
+						// A CSI-managed volume can still be genuine waste (e.g. a
+						// deleted PVC with a Retain reclaim policy), so the finding
+						// stays visible — but blind "detach and delete" advice is
+						// wrong without first checking whether a PersistentVolume
+						// still claims it.
+						remediationPath = RemediationNeedsReview
+						meta["csi_managed"] = true
+						if pvcName != "" && pvcNamespace != "" {
+							meta["pvc_name"] = pvcName
+							meta["pvc_namespace"] = pvcNamespace
+							msg += fmt.Sprintf(" — provisioned by a Kubernetes PersistentVolume for PVC %q in namespace %q; verify with `kubectl get pv` before deleting directly", pvcName, pvcNamespace)
+						} else {
+							msg += " — provisioned by a Kubernetes PersistentVolume; verify with `kubectl get pv` before deleting directly"
+						}
+					}
+
 					result.Findings = append(result.Findings, Finding{
 						ID:                    FindingDetachedEBS,
 						Severity:              SeverityHigh,
@@ -88,14 +141,10 @@ func (s *EBSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						ResourceID:            volID,
 						ResourceName:          volumeName(vol),
 						Region:                s.region,
-						Message:               fmt.Sprintf("Detached %d days, %s %d GiB", daysDetached, volumeType, sizeGiB),
+						Message:               msg,
 						EstimatedMonthlyWaste: cost,
-						Metadata: map[string]any{
-							"volume_type":       volumeType,
-							"size_gib":          sizeGiB,
-							"days_detached":     daysDetached,
-							"availability_zone": deref(vol.AvailabilityZone),
-						},
+						RemediationPath:       remediationPath,
+						Metadata:              meta,
 					})
 				}
 			}
