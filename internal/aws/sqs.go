@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
@@ -42,6 +44,7 @@ type sqsQueueInfo struct {
 	arn                string
 	redrivePolicy      string
 	redriveAllowPolicy string
+	createTime         *time.Time
 }
 
 // Scan examines all SQS queues for idle, no-consumer, and orphaned DLQ conditions.
@@ -114,10 +117,13 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		return result, nil
 	}
 
+	now := time.Now().UTC()
+
 	for _, name := range names {
 		q := queueMap[name]
 		sentCount := sent[name]
 		receivedCount := received[name]
+		window, sufficient := idleWindowDescription(cfg.IdleDays, q.createTime, now)
 
 		// SQS_IDLE: zero sent and zero received. A queue that's the
 		// deadLetterTargetArn of another live queue's RedrivePolicy is
@@ -137,9 +143,12 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				ResourceID:            q.name,
 				ResourceName:          q.arn,
 				Region:                s.region,
-				Message:               fmt.Sprintf("Zero messages sent and received over %d days", cfg.IdleDays),
+				Message:               fmt.Sprintf("Zero messages sent and received over %s", window),
 				EstimatedMonthlyWaste: 0,
 				Hygiene:               true, // WO-194: zero-waste SQS hygiene findings stay visible.
+				Metadata: map[string]any{
+					"sufficient_history": sufficient,
+				},
 			})
 			continue
 		}
@@ -153,11 +162,12 @@ func (s *SQSScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				ResourceID:            q.name,
 				ResourceName:          q.arn,
 				Region:                s.region,
-				Message:               fmt.Sprintf("%.0f messages sent but zero received over %d days", sentCount, cfg.IdleDays),
+				Message:               fmt.Sprintf("%.0f messages sent but zero received over %s", sentCount, window),
 				EstimatedMonthlyWaste: 0,
 				Hygiene:               true, // WO-194: zero-waste SQS hygiene findings stay visible.
 				Metadata: map[string]any{
-					"messages_sent": sentCount,
+					"messages_sent":      sentCount,
+					"sufficient_history": sufficient,
 				},
 			})
 			continue
@@ -209,6 +219,7 @@ func (s *SQSScanner) getQueueInfo(ctx context.Context, queueURL string) (sqsQueu
 			sqstypes.QueueAttributeNameQueueArn,
 			sqstypes.QueueAttributeNameRedrivePolicy,
 			sqstypes.QueueAttributeNameRedriveAllowPolicy,
+			sqstypes.QueueAttributeNameCreatedTimestamp,
 		},
 	})
 	if err != nil {
@@ -221,7 +232,25 @@ func (s *SQSScanner) getQueueInfo(ctx context.Context, queueURL string) (sqsQueu
 		arn:                out.Attributes["QueueArn"],
 		redrivePolicy:      out.Attributes["RedrivePolicy"],
 		redriveAllowPolicy: out.Attributes["RedriveAllowPolicy"],
+		createTime:         parseSQSCreatedTimestamp(out.Attributes["CreatedTimestamp"]),
 	}, nil
+}
+
+// parseSQSCreatedTimestamp parses the CreatedTimestamp queue attribute, a
+// Unix epoch seconds string. Returns nil on any parse failure or empty
+// input — idleWindowDescription treats a nil createTime as unknown age and
+// defaults to full-window confidence, the same safe fallback used when the
+// attribute simply isn't present.
+func parseSQSCreatedTimestamp(raw string) *time.Time {
+	if raw == "" {
+		return nil
+	}
+	epochSeconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return nil
+	}
+	t := time.Unix(epochSeconds, 0).UTC()
+	return &t
 }
 
 // fetchTags fetches all tags for an SQS queue (ListQueueTags has no

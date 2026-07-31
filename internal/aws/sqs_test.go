@@ -3,7 +3,10 @@ package aws
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -321,6 +324,166 @@ func TestSQSScanner_ReferencedDLQ_WithMessages_StillFlaggedNoConsumer(t *testing
 	}
 	if dlqFinding.ID != FindingSQSNoConsumer {
 		t.Fatalf("expected SQS_NO_CONSUMER for the DLQ with undelivered messages, got %s", dlqFinding.ID)
+	}
+}
+
+func TestSQSScanner_RecentlyCreated_InsufficientHistoryMessage(t *testing.T) {
+	// WO-253: same defect class as WO-236 (EC2) / WO-249 (RDS) / WO-250 (ELB) /
+	// WO-251 (NAT Gateway) / WO-252 (Kinesis) — a queue created less than
+	// cfg.IdleDays ago must not have its SQS_IDLE message claim full window
+	// confidence it doesn't have.
+	createdTimestamp := strconv.FormatInt(time.Now().UTC().Add(-11*time.Minute).Unix(), 10)
+	mock := &mockSQSClient{
+		queueURLs: []string{"https://sqs.us-east-1.amazonaws.com/123/fresh-queue"},
+		attributes: map[string]map[string]string{
+			"https://sqs.us-east-1.amazonaws.com/123/fresh-queue": {
+				"QueueArn":         "arn:aws:sqs:us-east-1:123:fresh-queue",
+				"CreatedTimestamp": createdTimestamp,
+			},
+		},
+	}
+
+	scanner := NewSQSScanner(mock, zeroMetricsFetcher(), "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected the finding to still surface (evidence, not suppressed), got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected message to NOT claim full 7-day coverage for a queue created 11 minutes ago, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "insufficient running history") {
+		t.Fatalf("expected message to disclose insufficient history, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != false {
+		t.Fatalf("expected sufficient_history=false for a freshly-created queue, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestSQSScanner_AboveThreshold_UsesFullWindowMessage(t *testing.T) {
+	createdTimestamp := strconv.FormatInt(time.Now().UTC().Add(-30*24*time.Hour).Unix(), 10) // 30 days ago
+	mock := &mockSQSClient{
+		queueURLs: []string{"https://sqs.us-east-1.amazonaws.com/123/long-lived-queue"},
+		attributes: map[string]map[string]string{
+			"https://sqs.us-east-1.amazonaws.com/123/long-lived-queue": {
+				"QueueArn":         "arn:aws:sqs:us-east-1:123:long-lived-queue",
+				"CreatedTimestamp": createdTimestamp,
+			},
+		},
+	}
+
+	scanner := NewSQSScanner(mock, zeroMetricsFetcher(), "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected full-window message for a 30-day-old queue, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true for a 30-day-old queue, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestSQSScanner_NoCreatedTimestamp_DefaultsToSufficientHistory(t *testing.T) {
+	mock := &mockSQSClient{
+		queueURLs: []string{"https://sqs.us-east-1.amazonaws.com/123/unknown-age-queue"},
+		attributes: map[string]map[string]string{
+			"https://sqs.us-east-1.amazonaws.com/123/unknown-age-queue": {
+				"QueueArn": "arn:aws:sqs:us-east-1:123:unknown-age-queue",
+			},
+		},
+	}
+
+	scanner := NewSQSScanner(mock, zeroMetricsFetcher(), "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if !strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected full-window message when CreatedTimestamp is unset, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true when CreatedTimestamp is unset, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestSQSScanner_NoConsumer_RecentlyCreated_InsufficientHistoryMessage(t *testing.T) {
+	// The SQS_NO_CONSUMER message must get the same honesty fix as SQS_IDLE.
+	createdTimestamp := strconv.FormatInt(time.Now().UTC().Add(-11*time.Minute).Unix(), 10)
+	mock := &mockSQSClient{
+		queueURLs: []string{"https://sqs.us-east-1.amazonaws.com/123/fresh-no-consumer-queue"},
+		attributes: map[string]map[string]string{
+			"https://sqs.us-east-1.amazonaws.com/123/fresh-no-consumer-queue": {
+				"QueueArn":         "arn:aws:sqs:us-east-1:123:fresh-no-consumer-queue",
+				"CreatedTimestamp": createdTimestamp,
+			},
+		},
+	}
+
+	callCount := 0
+	metrics := NewMetricsFetcher(&mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			callCount++
+			results := make([]cwtypes.MetricDataResult, 0, len(input.MetricDataQueries))
+			for i := range input.MetricDataQueries {
+				val := 100.0 // NumberOfMessagesSent > 0
+				if callCount == 2 {
+					val = 0 // NumberOfMessagesReceived = 0
+				}
+				results = append(results, cwtypes.MetricDataResult{
+					Id:     awssdk.String(fmt.Sprintf("m%d", i)),
+					Values: []float64{val},
+				})
+			}
+			return &cloudwatch.GetMetricDataOutput{MetricDataResults: results}, nil
+		},
+	})
+
+	scanner := NewSQSScanner(mock, metrics, "us-east-1")
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.ID != FindingSQSNoConsumer {
+		t.Fatalf("expected SQS_NO_CONSUMER, got %s", f.ID)
+	}
+	if strings.Contains(f.Message, "over 7 days") {
+		t.Fatalf("expected message to NOT claim full 7-day coverage for a queue created 11 minutes ago, got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "insufficient running history") {
+		t.Fatalf("expected message to disclose insufficient history, got %q", f.Message)
+	}
+	if f.Metadata["sufficient_history"] != false {
+		t.Fatalf("expected sufficient_history=false for a freshly-created queue, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestParseSQSCreatedTimestamp_MalformedInput_FailsSafeToNil(t *testing.T) {
+	cases := []string{"", "not-a-number", "12.5", "0x1234"}
+	for _, raw := range cases {
+		if got := parseSQSCreatedTimestamp(raw); got != nil {
+			t.Fatalf("expected nil for malformed input %q, got %v", raw, got)
+		}
 	}
 }
 
