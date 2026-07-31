@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -243,12 +244,16 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 	ebsScanner := NewEBSScanner(ec2Client, region)
 	ebsScanner.SetCloudTrailClient(cloudtrailClient)
 
+	autoscalingClient := autoscaling.NewFromConfig(cfg)
+	secGroupScanner := NewSecurityGroupScanner(ec2Client, region)
+	secGroupScanner.SetAutoScalingClient(autoscalingClient)
+
 	return []ResourceScanner{
 		ec2Scanner,
 		ebsScanner,
 		NewEIPScanner(ec2Client, region),
 		NewSnapshotScanner(ec2Client, region),
-		NewSecurityGroupScanner(ec2Client, region),
+		secGroupScanner,
 		NewELBScanner(elbClient, metrics, region),
 		NewNATGatewayScanner(ec2Client, metrics, region),
 		NewRDSScanner(rdsClient, metrics, region),

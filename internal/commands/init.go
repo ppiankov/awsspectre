@@ -111,6 +111,8 @@ timeout: 10m
 
 // WO-199: generated IAM policy must cover CloudFront distribution inventory.
 // WO-221: also covers CloudWatch Logs retention/tag inventory.
+// WO-232: also covers Auto Scaling Group / launch template inspection for
+// ASG-referenced security group detection.
 const sampleIAMPolicy = `{
   "Version": "2012-10-17",
   "Statement": [
@@ -127,6 +129,9 @@ const sampleIAMPolicy = `{
         "ec2:DescribeSnapshots",
         "ec2:DescribeImages",
         "ec2:DescribeRegions",
+        "ec2:DescribeLaunchTemplateVersions",
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeLaunchConfigurations",
         "elasticloadbalancing:DescribeLoadBalancers",
         "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth",
