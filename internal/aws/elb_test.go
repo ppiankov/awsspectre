@@ -348,6 +348,9 @@ func TestELBScanner_KubernetesManagedLB_DownRanked(t *testing.T) {
 	if f.Metadata["controller_managed"] != true {
 		t.Fatalf("expected controller_managed=true in metadata, got %v", f.Metadata["controller_managed"])
 	}
+	if f.RemediationPath != RemediationViaController {
+		t.Fatalf("expected RemediationPath=via_controller for a k8s-managed LB, got %q", f.RemediationPath)
+	}
 }
 
 func TestELBScanner_KubernetesManagedLB_RecentlyCreated_BothCaveatsPresent(t *testing.T) {
@@ -556,6 +559,9 @@ func TestELBScanner_UntaggedLB_NotDownRanked(t *testing.T) {
 	}
 	if _, ok := f.Metadata["controller_managed"]; ok {
 		t.Fatalf("expected no controller_managed metadata key, got %v", f.Metadata["controller_managed"])
+	}
+	if f.EffectiveRemediationPath() != RemediationDirect {
+		t.Fatalf("expected RemediationPath to resolve to direct for a non-k8s-managed LB, got %q", f.EffectiveRemediationPath())
 	}
 }
 

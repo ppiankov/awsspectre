@@ -87,6 +87,7 @@ func (r *SARIFReporter) Generate(data Data) error {
 			Props: map[string]any{
 				"resourceName":          f.ResourceName,
 				"estimatedMonthlyWaste": f.EstimatedMonthlyWaste,
+				"remediationPath":       f.EffectiveRemediationPath(), // WO-228
 				"metadata":              f.Metadata,
 			},
 		})
