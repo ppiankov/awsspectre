@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.11] - 2026-07-31
+
+### Fixed
+
+- `SQS_IDLE` and `SQS_NO_CONSUMER` no longer overclaim lookback-window confidence for recently-created queues — the finding message now discloses insufficient running history instead of claiming full-window coverage it doesn't have. This closes out the full family of lookback-window-overclaiming fixes across every affected scanner (EC2, RDS, ELB, NAT Gateway, Kinesis/Firehose, and now SQS).
+
 ## [0.8.10] - 2026-07-30
 
 ### Fixed
@@ -201,6 +207,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.8.11]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.11
 [0.8.10]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.10
 [0.8.9]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.9
 [0.8.8]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.8
