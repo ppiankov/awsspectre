@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-31
+
+### Added
+
+- `Finding` gained a structured `remediation_path` field (`direct`, `via_controller`, `needs_review`) — a machine-readable alternative to string-matching a finding's `message` to tell "safe to delete directly" apart from "needs indirect action via an owning Kubernetes/ECS/IaC-managed resource" or "ambiguous, needs manual review." Present in JSON, SpectreHub, and SARIF output for every finding, defaulting to `direct`. ELB's existing Kubernetes-managed-load-balancer detection now sets `via_controller`; every other scanner defaults to `direct`.
+
 ## [0.8.11] - 2026-07-31
 
 ### Fixed
@@ -207,6 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.9.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.9.0
 [0.8.11]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.11
 [0.8.10]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.10
 [0.8.9]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.9
