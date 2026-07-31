@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-07-31
+
+### Added
+
+- `DETACHED_EBS` now recognizes AWS EBS CSI driver tags on a detached volume — the same controller-ownership awareness already shipped for ELB. A CSI-managed volume's finding stays visible (it can still be genuine waste, e.g. from a deleted PVC with a Retain reclaim policy) but its message and metadata now name the owning PVC/namespace when tags provide one and advise `kubectl get pv` verification before deleting directly. Sets `remediation_path=needs_review`.
+
 ## [0.9.0] - 2026-07-31
 
 ### Added
@@ -213,6 +219,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.10.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.10.0
 [0.9.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.9.0
 [0.8.11]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.11
 [0.8.10]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.10
