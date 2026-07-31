@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"encoding/json"
 	"time"
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -14,6 +15,25 @@ const (
 	SeverityHigh   Severity = "high"
 	SeverityMedium Severity = "medium"
 	SeverityLow    Severity = "low"
+)
+
+// RemediationPath classifies how a finding should be acted on — WO-228.
+// A structured, machine-readable alternative to string-matching a finding's
+// Message to tell "safe to delete directly" apart from "needs indirect
+// action" or "needs manual review before acting."
+type RemediationPath string
+
+const (
+	// RemediationDirect: the resource itself is the fix target. The safe
+	// default for scanners with no ownership-awareness logic.
+	RemediationDirect RemediationPath = "direct"
+	// RemediationViaController: fix by acting on the owning Kubernetes/ECS/
+	// IaC-managed resource, not this one directly (e.g. a load balancer
+	// managed by a Kubernetes Service/Ingress controller — WO-220).
+	RemediationViaController RemediationPath = "via_controller"
+	// RemediationNeedsReview: the finding's confidence is lower than usual
+	// and warrants manual review before acting.
+	RemediationNeedsReview RemediationPath = "needs_review"
 )
 
 // ResourceType identifies the AWS resource being audited.
@@ -70,16 +90,44 @@ const (
 
 // Finding represents a single waste detection result.
 type Finding struct {
-	ID                    FindingID      `json:"id"`
-	Severity              Severity       `json:"severity"`
-	ResourceType          ResourceType   `json:"resource_type"`
-	ResourceID            string         `json:"resource_id"`
-	ResourceName          string         `json:"resource_name,omitempty"`
-	Region                string         `json:"region"`
-	Message               string         `json:"message"`
-	EstimatedMonthlyWaste float64        `json:"estimated_monthly_waste"`
-	Hygiene               bool           `json:"hygiene,omitempty"` // WO-194: zero-waste hygiene findings bypass cost filtering structurally.
-	Metadata              map[string]any `json:"metadata,omitempty"`
+	ID                    FindingID       `json:"id"`
+	Severity              Severity        `json:"severity"`
+	ResourceType          ResourceType    `json:"resource_type"`
+	ResourceID            string          `json:"resource_id"`
+	ResourceName          string          `json:"resource_name,omitempty"`
+	Region                string          `json:"region"`
+	Message               string          `json:"message"`
+	EstimatedMonthlyWaste float64         `json:"estimated_monthly_waste"`
+	Hygiene               bool            `json:"hygiene,omitempty"` // WO-194: zero-waste hygiene findings bypass cost filtering structurally.
+	RemediationPath       RemediationPath `json:"remediation_path,omitempty"`
+	Metadata              map[string]any  `json:"metadata,omitempty"`
+}
+
+// EffectiveRemediationPath returns f.RemediationPath, defaulting to
+// RemediationDirect when unset — the safe default for scanners with no
+// ownership-awareness logic. Used by JSON serialization and any other
+// consumer that needs the resolved value rather than the raw zero value.
+func (f Finding) EffectiveRemediationPath() RemediationPath {
+	if f.RemediationPath == "" {
+		return RemediationDirect
+	}
+	return f.RemediationPath
+}
+
+// MarshalJSON serializes Finding with RemediationPath resolved to its
+// effective value (defaulting to "direct") — WO-228. Scanners with no
+// ownership-awareness logic don't need to set this field explicitly; the
+// output always carries an explicit, machine-readable value rather than an
+// empty string.
+func (f Finding) MarshalJSON() ([]byte, error) {
+	type alias Finding
+	return json.Marshal(struct {
+		alias
+		RemediationPath RemediationPath `json:"remediation_path"`
+	}{
+		alias:           alias(f),
+		RemediationPath: f.EffectiveRemediationPath(),
+	})
 }
 
 // ScanResult holds all findings from scanning a set of resources.

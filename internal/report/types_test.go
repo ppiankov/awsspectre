@@ -136,6 +136,74 @@ func TestJSONReporter_Generate(t *testing.T) {
 	}
 }
 
+func TestJSONReporter_Generate_RemediationPathDefaultsToDirect(t *testing.T) {
+	// WO-228: a finding with no explicit RemediationPath must appear in
+	// spectre/v1 JSON output as remediation_path="direct", not omitted or
+	// empty, so downstream consumers always get an explicit value.
+	var buf bytes.Buffer
+	r := &JSONReporter{Writer: &buf}
+
+	if err := r.Generate(sampleData()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	findings, ok := envelope["findings"].([]any)
+	if !ok || len(findings) != 1 {
+		t.Fatalf("expected 1 finding in envelope, got %v", envelope["findings"])
+	}
+	finding := findings[0].(map[string]any)
+	if finding["remediation_path"] != "direct" {
+		t.Fatalf("expected remediation_path=\"direct\", got %v", finding["remediation_path"])
+	}
+}
+
+func TestSARIFReporter_RemediationPathInProperties(t *testing.T) {
+	var buf bytes.Buffer
+	r := &SARIFReporter{Writer: &buf}
+	data := sampleData()
+	data.Findings = append(data.Findings, awstype.Finding{
+		ID:              awstype.FindingIdleALB,
+		Severity:        awstype.SeverityMedium,
+		ResourceType:    awstype.ResourceALB,
+		ResourceID:      "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/k8s-svc/abc",
+		Region:          "us-east-1",
+		Message:         "managed by a Kubernetes Service/Ingress controller",
+		RemediationPath: awstype.RemediationViaController,
+	})
+
+	if err := r.Generate(data); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var sarif map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &sarif); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	run := sarif["runs"].([]any)[0].(map[string]any)
+	results := run["results"].([]any)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 SARIF results, got %d", len(results))
+	}
+
+	first := results[0].(map[string]any)
+	props := first["properties"].(map[string]any)
+	if props["remediationPath"] != "direct" {
+		t.Fatalf("expected remediationPath=\"direct\" for the first (default) finding, got %v", props["remediationPath"])
+	}
+
+	second := results[1].(map[string]any)
+	props2 := second["properties"].(map[string]any)
+	if props2["remediationPath"] != "via_controller" {
+		t.Fatalf("expected remediationPath=\"via_controller\" for the k8s-managed finding, got %v", props2["remediationPath"])
+	}
+}
+
 func TestSpectreHubReporter_Generate(t *testing.T) {
 	var buf bytes.Buffer
 	r := &SpectreHubReporter{Writer: &buf}

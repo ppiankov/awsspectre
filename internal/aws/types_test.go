@@ -114,6 +114,93 @@ func contains(s, substr string) bool {
 	return false
 }
 
+func TestFinding_MarshalJSON_DefaultsRemediationPathToDirect(t *testing.T) {
+	// WO-228: a finding with no explicit RemediationPath must serialize with
+	// remediation_path="direct" rather than an empty string, so consumers
+	// (SpectreHub, a CI gate, a dashboard) always get an explicit,
+	// machine-readable value without needing to special-case emptiness.
+	f := Finding{
+		ID:           FindingIdleEC2,
+		Severity:     SeverityHigh,
+		ResourceType: ResourceEC2,
+		ResourceID:   "i-0abc123",
+		Region:       "us-east-1",
+		Message:      "CPU 2.1% over 7 days",
+	}
+
+	data, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if decoded["remediation_path"] != "direct" {
+		t.Fatalf("expected remediation_path=\"direct\", got %v", decoded["remediation_path"])
+	}
+}
+
+func TestFinding_MarshalJSON_PreservesExplicitRemediationPath(t *testing.T) {
+	f := Finding{
+		ID:              FindingIdleALB,
+		Severity:        SeverityMedium,
+		ResourceType:    ResourceALB,
+		ResourceID:      "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/k8s-svc/abc",
+		Region:          "us-east-1",
+		Message:         "managed by a Kubernetes Service/Ingress controller",
+		RemediationPath: RemediationViaController,
+	}
+
+	data, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if decoded["remediation_path"] != "via_controller" {
+		t.Fatalf("expected remediation_path=\"via_controller\", got %v", decoded["remediation_path"])
+	}
+}
+
+func TestFinding_UnmarshalOldJSON_NoRemediationPathKey(t *testing.T) {
+	// WO-228 is additive: a hand-written JSON fixture with no remediation_path
+	// key at all (simulating output from a version before this WO shipped)
+	// must decode cleanly, with RemediationPath resolving to the safe default
+	// rather than erroring or leaving an ambiguous state.
+	oldJSON := `{"id":"IDLE_EC2","severity":"high","resource_type":"ec2","resource_id":"i-1","region":"us-east-1","message":"x"}`
+
+	var decoded Finding
+	if err := json.Unmarshal([]byte(oldJSON), &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if decoded.RemediationPath != "" {
+		t.Fatalf("expected empty RemediationPath for JSON with no remediation_path key, got %q", decoded.RemediationPath)
+	}
+	if got := decoded.EffectiveRemediationPath(); got != RemediationDirect {
+		t.Fatalf("expected EffectiveRemediationPath to resolve to direct, got %q", got)
+	}
+}
+
+func TestFinding_EffectiveRemediationPath(t *testing.T) {
+	direct := Finding{}
+	if got := direct.EffectiveRemediationPath(); got != RemediationDirect {
+		t.Fatalf("expected RemediationDirect for zero-value Finding, got %q", got)
+	}
+
+	viaController := Finding{RemediationPath: RemediationViaController}
+	if got := viaController.EffectiveRemediationPath(); got != RemediationViaController {
+		t.Fatalf("expected RemediationViaController to be preserved, got %q", got)
+	}
+}
+
 func TestExcludeConfig_ShouldExclude_ZeroValue(t *testing.T) {
 	var e ExcludeConfig
 	if e.ShouldExclude("i-123", map[string]string{"Env": "prod"}) {

@@ -132,6 +132,7 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 		// LB is idle: zero healthy targets or zero requests
 		findingID, resourceType, cost := s.classifyLB(lb)
 		severity := SeverityHigh
+		remediationPath := RemediationDirect
 		window, sufficient := idleWindowDescription(cfg.IdleDays, lb.CreatedTime, now)
 		msg := fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %s", lbName, window)
 		meta := map[string]any{
@@ -145,7 +146,10 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			// WO-220: controller-managed LBs must be removed via their owning
 			// Kubernetes Service/Ingress, not deleted directly — down-rank and
 			// correct the guidance instead of suppressing the finding.
+			// controller_managed is kept alongside RemediationPath (WO-228)
+			// for this release; deprecate the boolean once consumers migrate.
 			severity = SeverityMedium
+			remediationPath = RemediationViaController
 			msg = fmt.Sprintf("Load balancer %q has no healthy targets or zero requests over %s — managed by a Kubernetes Service/Ingress controller; remove that resource instead of deleting the LB directly", lbName, window)
 			meta["controller_managed"] = true
 		}
@@ -159,6 +163,7 @@ func (s *ELBScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 			Region:                s.region,
 			Message:               msg,
 			EstimatedMonthlyWaste: cost,
+			RemediationPath:       remediationPath,
 			Metadata:              meta,
 		})
 	}
