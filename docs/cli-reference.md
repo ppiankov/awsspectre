@@ -87,7 +87,8 @@ Generate a sample config with `awsspectre init`. An explicit CLI flag always tak
 
 AWSSpectre requires read-only access. Run `awsspectre init` to generate the minimal IAM policy, or attach these permissions:
 
-- `ec2:DescribeInstances`, `ec2:DescribeVolumes`, `ec2:DescribeAddresses`, `ec2:DescribeSnapshots`, `ec2:DescribeSecurityGroups`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeNatGateways`, `ec2:DescribeImages`, `ec2:DescribeRegions`
+- `ec2:DescribeInstances`, `ec2:DescribeVolumes`, `ec2:DescribeAddresses`, `ec2:DescribeSnapshots`, `ec2:DescribeSecurityGroups`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeNatGateways`, `ec2:DescribeImages`, `ec2:DescribeRegions`, `ec2:DescribeLaunchTemplateVersions`
+- `autoscaling:DescribeAutoScalingGroups`, `autoscaling:DescribeLaunchConfigurations`
 - `elasticloadbalancing:DescribeLoadBalancers`, `elasticloadbalancing:DescribeTargetGroups`, `elasticloadbalancing:DescribeTargetHealth`, `elasticloadbalancing:DescribeTags`
 - `rds:DescribeDBInstances`
 - `lambda:ListFunctions`, `lambda:ListTags`
@@ -146,7 +147,7 @@ awsspectre/
 │   │   ├── natgw.go               # NAT Gateway: zero bytes processed
 │   │   ├── rds.go                 # RDS: idle CPU, no connections
 │   │   ├── snapshot.go            # Snapshots: old, no AMI reference
-│   │   ├── secgroup.go            # Security groups: no attached ENIs
+│   │   ├── secgroup.go            # Security groups: no attached ENIs or ASG/launch-template references
 │   │   ├── lambda.go              # Lambda: zero invocations
 │   │   ├── kinesis.go             # Kinesis: idle streams, over-provisioned shards, idle Firehose
 │   │   ├── sqs.go                 # SQS: idle queues, no-consumer, orphaned DLQs
@@ -197,7 +198,7 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **CloudWatch data lag.** Metrics may take up to 15 minutes to appear. Very recently provisioned resources may not have enough data for idle detection.
 - **No cross-account support.** Scans a single AWS account at a time.
 - **No rightsizing.** Flags underutilized resources but does not recommend smaller instance types.
-- **Security group references.** Only checks ENI attachment and in-rules cross-references. Does not trace through nested group chains.
+- **Security group references.** Checks ENI attachment, in-rules cross-references, and Auto Scaling Group launch template/launch configuration references (regardless of current desired capacity). Does not trace through nested group chains. If an ASG references a launch template version that no longer exists (e.g. a deleted version left behind after drift), that lookup fails and is skipped — the referenced security group can then be incorrectly re-flagged as unused until the stale reference is cleaned up.
 - **Snapshot AMI check.** Only validates against AMIs owned by the account. Shared AMIs referencing the snapshot will not be detected.
 - **Single metric thresholds.** CPU < 5% is a simple heuristic. Some workloads (batch, cron) may appear idle but are not.
 - **gp2/gp3 pricing coverage.** The gp2→gp3 migration savings estimate is only backed by curated rates for 4 regions; other regions fall back to us-east-1 pricing for both volume types, which may not reflect the real gp2/gp3 delta (or lack thereof) in every region.

@@ -83,3 +83,29 @@ func TestSampleIAMPolicyIncludesFirehoseDescribeDeliveryStream(t *testing.T) {
 		t.Fatal("expected sample IAM policy to include firehose:DescribeDeliveryStream")
 	}
 }
+
+func TestSampleIAMPolicyIncludesASGReferencedSecurityGroupPermissions(t *testing.T) {
+	var policy samplePolicyDocument
+	if err := json.Unmarshal([]byte(sampleIAMPolicy), &policy); err != nil {
+		t.Fatalf("unmarshal sample IAM policy: %v", err)
+	}
+
+	actions := make(map[string]bool, len(policy.Statement[0].Action))
+	for _, action := range policy.Statement[0].Action {
+		actions[action] = true
+	}
+
+	// WO-232: the security group scanner calls these to detect a security
+	// group referenced by an Auto Scaling Group's launch template/launch
+	// configuration, regardless of the ASG's current desired capacity.
+	required := []string{
+		"ec2:DescribeLaunchTemplateVersions",
+		"autoscaling:DescribeAutoScalingGroups",
+		"autoscaling:DescribeLaunchConfigurations",
+	}
+	for _, action := range required {
+		if !actions[action] {
+			t.Errorf("expected sample IAM policy to include %s", action)
+		}
+	}
+}
