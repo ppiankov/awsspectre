@@ -5,6 +5,13 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-01
+
+### Added
+
+- `UNUSED_SECURITY_GROUP` now recognizes security groups referenced by an Auto Scaling Group's launch template or launch configuration (including the `MixedInstancesPolicy` path), across both `LaunchConfigurationName` and `LaunchTemplate`/`LaunchTemplateSpecification` references — these are no longer misflagged as unused just because no ENI currently uses them (e.g. a zero-desired-capacity ASG).
+- `IDLE_EC2` now recognizes EKS-managed node groups and Auto Scaling Group ownership on running instances — the same controller-ownership awareness already shipped for ELB and `DETACHED_EBS`. A node-group-managed instance's finding stays visible but its severity down-ranks and its message points at scaling the node group instead of terminating the instance directly. Sets `remediation_path=via_controller`.
+
 ## [0.10.0] - 2026-07-31
 
 ### Added
@@ -219,6 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.11.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.11.0
 [0.10.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.10.0
 [0.9.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.9.0
 [0.8.11]: https://github.com/ppiankov/awsspectre/releases/tag/v0.8.11
