@@ -13,6 +13,37 @@ import (
 	"github.com/ppiankov/awsspectre/internal/pricing"
 )
 
+// eksNodeGroupTagKeys are tags set by EKS-managed node groups and the
+// cluster-autoscaler/Karpenter on the EC2 instances they own. Any one of
+// these alone is a sufficient signal — the instance is scaled up/down by its
+// owning node group or Auto Scaling Group, not removed by terminating it
+// directly — WO-239 (mirrors WO-220's ELB precedent).
+var eksNodeGroupTagKeys = []string{
+	"aws:autoscaling:groupName",
+	"eks:cluster-name",
+	"aws:eks:cluster-name",
+}
+
+// kubernetesClusterTagPrefix is the key prefix for the
+// "kubernetes.io/cluster/<name>=owned" convention used by both the legacy
+// in-tree cloud provider and cluster-autoscaler/Karpenter to mark nodes as
+// owned by a specific cluster — WO-239.
+const kubernetesClusterTagPrefix = "kubernetes.io/cluster/"
+
+func isNodeGroupManagedEC2(tags map[string]string) (managed bool) {
+	for _, key := range eksNodeGroupTagKeys {
+		if _, ok := tags[key]; ok {
+			return true
+		}
+	}
+	for key, value := range tags {
+		if strings.HasPrefix(key, kubernetesClusterTagPrefix) && value == "owned" {
+			return true
+		}
+	}
+	return false
+}
+
 // EC2API is the minimal interface for EC2 instance operations.
 type EC2API interface {
 	DescribeInstances(ctx context.Context, input *ec2.DescribeInstancesInput, opts ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
@@ -197,15 +228,32 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						metadata["avg_gpu_percent"] = avgGPU
 						metadata["has_gpu_metrics"] = hasGPU
 					}
+
+					severity := SeverityHigh
+					remediationPath := RemediationDirect
+					msg := idleMessage(avgCPU, avgMem, hasMem, window)
+					if isNodeGroupManagedEC2(ec2TagsToMap(inst.Tags)) {
+						// WO-239: node-group-managed instances are scaled by
+						// their owning EKS node group or Auto Scaling Group —
+						// down-rank and correct the guidance instead of
+						// suggesting direct termination, mirroring WO-220's
+						// ELB precedent.
+						severity = SeverityMedium
+						remediationPath = RemediationViaController
+						msg = fmt.Sprintf("%s — managed by an EKS/Auto Scaling Group node group; scale down via that node group instead of terminating the instance directly", msg)
+						metadata["node_group_managed"] = true
+					}
+
 					result.Findings = append(result.Findings, Finding{
 						ID:                    FindingIdleEC2,
-						Severity:              SeverityHigh,
+						Severity:              severity,
 						ResourceType:          ResourceEC2,
 						ResourceID:            id,
 						ResourceName:          instanceName(inst),
 						Region:                s.region,
-						Message:               idleMessage(avgCPU, avgMem, hasMem, window),
+						Message:               msg,
 						EstimatedMonthlyWaste: cost,
+						RemediationPath:       remediationPath,
 						Metadata:              metadata,
 					})
 				}
