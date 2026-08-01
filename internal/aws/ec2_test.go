@@ -230,6 +230,168 @@ func TestEC2Scanner_IdleInstance_RecentlyStarted_InsufficientHistoryMessage(t *t
 	}
 }
 
+func TestEC2Scanner_IdleInstance_NodeGroupManaged_ASGTag(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-nodegroup001"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("aws:autoscaling:groupName"), Value: awssdk.String("app-nodepool-asg")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-nodegroup001": 2.0}, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected medium severity for a node-group-managed instance, got %s", f.Severity)
+	}
+	if f.RemediationPath != RemediationViaController {
+		t.Fatalf("expected via_controller remediation path, got %s", f.RemediationPath)
+	}
+	if !strings.Contains(f.Message, "node group") {
+		t.Fatalf("expected message to mention the node group, got %q", f.Message)
+	}
+	if f.Metadata["node_group_managed"] != true {
+		t.Fatalf("expected node_group_managed=true, got %v", f.Metadata["node_group_managed"])
+	}
+}
+
+func TestEC2Scanner_IdleInstance_NodeGroupManaged_EKSClusterNameTag(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-nodegroup002"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("eks:cluster-name"), Value: awssdk.String("prod-eks-cluster")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-nodegroup002": 2.0}, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected medium severity for eks:cluster-name tag, got %s", f.Severity)
+	}
+	if f.RemediationPath != RemediationViaController {
+		t.Fatalf("expected via_controller remediation path, got %s", f.RemediationPath)
+	}
+}
+
+func TestEC2Scanner_IdleInstance_NodeGroupManaged_KubernetesClusterOwnedTag(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-nodegroup003"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("kubernetes.io/cluster/prod-eks-cluster"), Value: awssdk.String("owned")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-nodegroup003": 2.0}, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected medium severity for kubernetes.io/cluster/*=owned tag, got %s", f.Severity)
+	}
+	if f.RemediationPath != RemediationViaController {
+		t.Fatalf("expected via_controller remediation path, got %s", f.RemediationPath)
+	}
+}
+
+func TestEC2Scanner_IdleInstance_KubernetesClusterTagNotOwned_NotNodeGroupManaged(t *testing.T) {
+	// A "kubernetes.io/cluster/<name>" tag with a value other than "owned"
+	// (e.g. "shared") means the cluster merely references the resource, not
+	// that it owns/manages its lifecycle — must not be treated as node-group
+	// managed.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-shared001"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("kubernetes.io/cluster/prod-eks-cluster"), Value: awssdk.String("shared")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(map[string]float64{"i-shared001": 2.0}, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Severity != SeverityHigh {
+		t.Fatalf("expected high severity (not node-group managed), got %s", f.Severity)
+	}
+	if f.RemediationPath != RemediationDirect && f.RemediationPath != "" {
+		t.Fatalf("expected direct/empty remediation path, got %s", f.RemediationPath)
+	}
+}
+
 func TestEC2Scanner_HealthyInstance(t *testing.T) {
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
@@ -611,6 +773,174 @@ func TestEC2Scanner_GPUInstance_LowCPULowGPU_StillIdle(t *testing.T) {
 	}
 }
 
+func TestEC2Scanner_NodeGroupManaged_GPUOverride_NotIdle(t *testing.T) {
+	// A node-group-managed GPU instance that is actually saturated on the GPU
+	// must still be skipped entirely by the GPU override — the node-group
+	// check must not resurrect a finding the GPU override already ruled out.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-nodegroup-gpubusy"),
+						InstanceType: ec2types.InstanceTypeG4dnXlarge,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("aws:autoscaling:groupName"), Value: awssdk.String("gpu-nodepool-asg")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcherWithGPU(
+		map[string]float64{"i-nodegroup-gpubusy": 2.0},
+		nil,
+		map[string]float64{"i-nodegroup-gpubusy": 95.0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for a GPU-saturated node-group-managed instance, got %d", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_NodeGroupManaged_LowGPU_StillIdle_Annotated(t *testing.T) {
+	// A genuinely idle node-group-managed GPU instance must get both the
+	// existing GPU metadata AND the node-group annotation together.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-nodegroup-gpuidle"),
+						InstanceType: ec2types.InstanceTypeG4dnXlarge,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("aws:autoscaling:groupName"), Value: awssdk.String("gpu-nodepool-asg")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcherWithGPU(
+		map[string]float64{"i-nodegroup-gpuidle": 1.0},
+		nil,
+		map[string]float64{"i-nodegroup-gpuidle": 3.0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding for a genuinely idle node-group-managed GPU instance, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.Metadata["avg_gpu_percent"] != 3.0 {
+		t.Fatalf("expected avg_gpu_percent 3.0, got %v", f.Metadata["avg_gpu_percent"])
+	}
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected medium severity, got %s", f.Severity)
+	}
+	if f.RemediationPath != RemediationViaController {
+		t.Fatalf("expected via_controller remediation path, got %s", f.RemediationPath)
+	}
+	if f.Metadata["node_group_managed"] != true {
+		t.Fatalf("expected node_group_managed=true, got %v", f.Metadata["node_group_managed"])
+	}
+}
+
+func TestEC2Scanner_NodeGroupManaged_MemoryOverride_NotIdle(t *testing.T) {
+	// A node-group-managed instance with high memory utilization must still
+	// be skipped entirely by the memory override.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-nodegroup-membusy"),
+						InstanceType: ec2types.InstanceTypeT3Large,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("aws:autoscaling:groupName"), Value: awssdk.String("app-nodepool-asg")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(
+		map[string]float64{"i-nodegroup-membusy": 2.0},
+		map[string]float64{"i-nodegroup-membusy": 85.0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings for a memory-busy node-group-managed instance, got %d", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_StoppedInstance_NodeGroupTags_ScopeContained(t *testing.T) {
+	// WO-239 is scoped to IDLE_EC2 only — a stopped instance with node-group
+	// tags must produce an ordinary STOPPED_EC2 finding, untouched by the
+	// node-group annotation/RemediationPath logic.
+	launchTime := time.Now().UTC().Add(-45 * 24 * time.Hour)
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId:   awssdk.String("i-stopped-nodegroup"),
+						InstanceType: ec2types.InstanceTypeT3Micro,
+						State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameStopped},
+						LaunchTime:   &launchTime,
+						Tags: []ec2types.Tag{
+							{Key: awssdk.String("aws:autoscaling:groupName"), Value: awssdk.String("app-nodepool-asg")},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metrics := newEC2MockMetricsFetcher(nil, nil)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+
+	f := result.Findings[0]
+	if f.ID != FindingStoppedEC2 {
+		t.Fatalf("expected STOPPED_EC2, got %s", f.ID)
+	}
+	if f.Metadata["node_group_managed"] != nil {
+		t.Fatalf("expected no node_group_managed metadata on STOPPED_EC2, got %v", f.Metadata["node_group_managed"])
+	}
+	if f.RemediationPath != "" {
+		t.Fatalf("expected empty RemediationPath on STOPPED_EC2 (unaffected by WO-239), got %s", f.RemediationPath)
+	}
+}
+
 func TestEC2Scanner_GPUInstance_NoGPUMetrics_FallsBackToCPU(t *testing.T) {
 	// No CloudWatch agent GPU plugin installed — no GPU metric data at all.
 	// Must fall back to CPU-only detection rather than blocking the finding.
@@ -735,6 +1065,28 @@ func TestIsGPUInstanceType(t *testing.T) {
 	for _, c := range cases {
 		if got := isGPUInstanceType(c.instanceType); got != c.want {
 			t.Errorf("isGPUInstanceType(%q) = %v, want %v", c.instanceType, got, c.want)
+		}
+	}
+}
+
+func TestIsNodeGroupManagedEC2(t *testing.T) {
+	cases := []struct {
+		name string
+		tags map[string]string
+		want bool
+	}{
+		{"asg tag alone", map[string]string{"aws:autoscaling:groupName": "app-nodepool-asg"}, true},
+		{"eks cluster-name tag alone", map[string]string{"eks:cluster-name": "prod-eks-cluster"}, true},
+		{"aws:eks:cluster-name tag alone", map[string]string{"aws:eks:cluster-name": "prod-eks-cluster"}, true},
+		{"kubernetes.io/cluster/*=owned", map[string]string{"kubernetes.io/cluster/prod-eks-cluster": "owned"}, true},
+		{"kubernetes.io/cluster/*=shared not owned", map[string]string{"kubernetes.io/cluster/prod-eks-cluster": "shared"}, false},
+		{"unrelated tags", map[string]string{"Name": "web-01", "Environment": "prod"}, false},
+		{"no tags", map[string]string{}, false},
+		{"nil tags", nil, false},
+	}
+	for _, c := range cases {
+		if got := isNodeGroupManagedEC2(c.tags); got != c.want {
+			t.Errorf("%s: isNodeGroupManagedEC2(%v) = %v, want %v", c.name, c.tags, got, c.want)
 		}
 	}
 }
