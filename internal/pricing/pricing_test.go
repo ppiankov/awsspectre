@@ -152,6 +152,29 @@ func TestMonthlyCloudWatchLogsStorageCost_Zero(t *testing.T) {
 	}
 }
 
+func TestMonthlyECRStorageCost(t *testing.T) {
+	// 25 GiB at $0.10/GiB = $2.50
+	cost := MonthlyECRStorageCost(25*1024*1024*1024, "us-east-1")
+	if cost != 2.5 {
+		t.Fatalf("expected $2.50, got $%.2f", cost)
+	}
+}
+
+func TestMonthlyECRStorageCost_Zero(t *testing.T) {
+	cost := MonthlyECRStorageCost(0, "us-east-1")
+	if cost != 0 {
+		t.Fatalf("expected $0.00, got $%.2f", cost)
+	}
+}
+
+func TestMonthlyECRStorageCost_RegionFallback(t *testing.T) {
+	// Unknown region falls back to us-east-1 pricing.
+	cost := MonthlyECRStorageCost(10*1024*1024*1024, "ap-northeast-1")
+	if cost != 1.0 {
+		t.Fatalf("expected $1.00 (us-east-1 fallback), got $%.2f", cost)
+	}
+}
+
 func TestRDSInstanceMemoryBytes_Known(t *testing.T) {
 	mem, ok := RDSInstanceMemoryBytes("db.r5.large")
 	if !ok {

@@ -54,8 +54,9 @@ const (
 	ResourceFirehose      ResourceType = "firehose"
 	ResourceSQS           ResourceType = "sqs"
 	ResourceSNS           ResourceType = "sns"
-	ResourceCloudFront    ResourceType = "cloudfront" // WO-189: global CloudFront hygiene scanner.
-	ResourceLogGroup      ResourceType = "log_group"  // WO-221: CloudWatch Logs retention scanner.
+	ResourceCloudFront    ResourceType = "cloudfront"     // WO-189: global CloudFront hygiene scanner.
+	ResourceLogGroup      ResourceType = "log_group"      // WO-221: CloudWatch Logs retention scanner.
+	ResourceECR           ResourceType = "ecr_repository" // WO-225: ECR repository storage/untagged-image scanner.
 )
 
 // FindingID identifies the type of waste detected.
@@ -82,10 +83,12 @@ const (
 	FindingSQSNoConsumer          FindingID = "SQS_NO_CONSUMER"
 	FindingSNSNoSubscribers       FindingID = "SNS_NO_SUBSCRIBERS"
 	FindingSNSIdle                FindingID = "SNS_IDLE"
-	FindingCloudFrontDisabled     FindingID = "CLOUDFRONT_DISABLED"     // WO-189: disabled distribution hygiene signal.
-	FindingCloudFrontIdle         FindingID = "CLOUDFRONT_IDLE"         // WO-189: zero-request distribution hygiene signal.
-	FindingLogGroupNoRetention    FindingID = "LOG_GROUP_NO_RETENTION"  // WO-221: unbounded log-retention risk.
-	FindingGP2MigrationCandidate  FindingID = "GP2_MIGRATION_CANDIDATE" // WO-222: gp2 volume with a same-behavior gp3 cost win.
+	FindingCloudFrontDisabled     FindingID = "CLOUDFRONT_DISABLED"       // WO-189: disabled distribution hygiene signal.
+	FindingCloudFrontIdle         FindingID = "CLOUDFRONT_IDLE"           // WO-189: zero-request distribution hygiene signal.
+	FindingLogGroupNoRetention    FindingID = "LOG_GROUP_NO_RETENTION"    // WO-221: unbounded log-retention risk.
+	FindingGP2MigrationCandidate  FindingID = "GP2_MIGRATION_CANDIDATE"   // WO-222: gp2 volume with a same-behavior gp3 cost win.
+	FindingECRNoLifecyclePolicy   FindingID = "ECR_NO_LIFECYCLE_POLICY"   // WO-225: unbounded image retention risk.
+	FindingECRUntaggedImageSprawl FindingID = "ECR_UNTAGGED_IMAGE_SPRAWL" // WO-225: untagged images accumulating storage cost.
 )
 
 // Finding represents a single waste detection result.
@@ -147,6 +150,7 @@ type ScanConfig struct {
 	HighMemoryThreshold  float64
 	StoppedThresholdDays int
 	NATGWLowTrafficGB    float64
+	ECRUntaggedThreshold int
 	Exclude              ExcludeConfig
 }
 
