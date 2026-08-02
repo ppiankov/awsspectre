@@ -5,6 +5,16 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-02
+
+### Added
+
+- New ECR scanner: `ECR_NO_LIFECYCLE_POLICY` flags repositories with no lifecycle policy configured (images accumulate indefinitely), and `ECR_UNTAGGED_IMAGE_SPRAWL` flags repositories whose untagged-image count exceeds a configurable `--ecr-untagged-threshold` (default 20), with an estimated monthly cost from the untagged images' total size. Adds 3 read-only IAM permissions (`ecr:DescribeRepositories`, `ecr:GetLifecyclePolicy`, `ecr:DescribeImages`).
+
+### Fixed
+
+- `GP2_MIGRATION_CANDIDATE` now uses real per-region gp2/gp3 on-demand rates for all 17 scanned regions (sourced from the AWS Price List API) instead of silently falling back to us-east-1 pricing for the 13 regions that previously had no entry. gp3 was confirmed cheaper than gp2 in every region (~20% consistently); the fix corrects understated absolute cost/savings estimates in the pricier non-US regions.
+
 ## [0.11.0] - 2026-08-01
 
 ### Added
@@ -226,6 +236,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.12.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.12.0
 [0.11.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.11.0
 [0.10.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.10.0
 [0.9.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.9.0
