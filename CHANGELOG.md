@@ -5,6 +5,13 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-08-02
+
+### Added
+
+- New ECR scanner: `ECR_NO_LIFECYCLE_POLICY` flags repositories with no lifecycle policy configured (images accumulate indefinitely), and `ECR_UNTAGGED_IMAGE_SPRAWL` flags repositories whose untagged-image count exceeds a configurable `--ecr-untagged-threshold` (default 20), with an estimated monthly cost from the untagged images' total size. Adds 3 read-only IAM permissions (`ecr:DescribeRepositories`, `ecr:GetLifecyclePolicy`, `ecr:DescribeImages`).
+- `IDLE_EC2` now detects periodic/burst CPU workloads (cron, batch, CI) that a flat average structurally cannot see. When a low-average instance shows a recurring daily-max CPU spike (`--idle-cpu-burst-threshold`, default 30%, on 2+ distinct days within the lookback window), the finding down-ranks to `remediation_path=needs_review` and its message discloses the burst pattern instead of presenting a flat average as continuous idleness. Gated on sufficient running history; one additional `GetMetricData` call per region per scan.
+
 ## [0.12.0] - 2026-08-02
 
 ### Added
@@ -236,6 +243,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.13.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.13.0
 [0.12.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.12.0
 [0.11.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.11.0
 [0.10.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.10.0
