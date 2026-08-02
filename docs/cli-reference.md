@@ -40,6 +40,7 @@ awsspectre scan [flags]
 | `--stale-days` | `90` | Age threshold for snapshots |
 | `--min-monthly-cost` | `1.0` | Minimum monthly cost to report ($) |
 | `--idle-cpu-threshold` | `5.0` | CPU % below which a resource is idle |
+| `--idle-cpu-burst-threshold` | `30.0` | Daily CPU max % that counts as a spike day for periodic/burst-workload detection |
 | `--high-memory-threshold` | `50.0` | Memory (or, for GPU instances, GPU utilization) % above which a resource is not idle |
 | `--stopped-threshold-days` | `30` | Days stopped before flagging EC2 |
 | `--nat-gw-low-traffic-gb` | `1.0` | NAT Gateway monthly GB below which to flag as low traffic |
@@ -142,7 +143,7 @@ awsspectre/
 │   │   ├── idlewindow.go          # Shared idle-window confidence helper (data-coverage honesty)
 │   │   ├── scanner.go             # MultiRegionScanner orchestrator
 │   │   ├── cloudfront.go          # CloudFront: disabled distributions, zero requests
-│   │   ├── ec2.go                 # EC2: idle CPU, stopped instances, EKS/ASG node-group awareness
+│   │   ├── ec2.go                 # EC2: idle CPU, stopped instances, EKS/ASG node-group awareness, burst-CPU signal
 │   │   ├── ebs.go                 # EBS: detached volumes, gp2->gp3 migration candidates
 │   │   ├── eip.go                 # EIP: unassociated addresses
 │   │   ├── elb.go                 # ALB/NLB: zero targets, zero requests
@@ -204,6 +205,7 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **Security group references.** Checks ENI attachment, in-rules cross-references, and Auto Scaling Group launch template/launch configuration references (regardless of current desired capacity). Does not trace through nested group chains. If an ASG references a launch template version that no longer exists (e.g. a deleted version left behind after drift), that lookup fails and is skipped — the referenced security group can then be incorrectly re-flagged as unused until the stale reference is cleaned up.
 - **Snapshot AMI check.** Only validates against AMIs owned by the account. Shared AMIs referencing the snapshot will not be detected.
 - **Single metric thresholds.** CPU < 5% is a simple heuristic. Some workloads (batch, cron) may appear idle but are not.
+- **`IDLE_EC2` burst detection is CPU-only and window-bound.** `IDLE_EC2` down-ranks to `remediation_path=needs_review` and annotates its message when a low average CPU hides a recurring daily-max spike pattern (`--idle-cpu-burst-threshold`, default 30% on 2+ distinct days within the lookback window) — external evidence of a periodic cron/batch/CI job a flat average structurally cannot see. It is a heuristic on CloudWatch CPU only: the scheduling mechanism itself (in-instance crontab, systemd timer, EventBridge) is invisible to AWS APIs, and a workload that bursts at sub-daily granularity, or whose spikes fall below the threshold, can still read as flatly idle. Burst detection is gated on sufficient running history (it is suppressed for instances younger than the lookback window, whose partial-day CloudWatch buckets could otherwise read as false spikes), and with `--idle-days` < 2 it is structurally inert (cannot accumulate 2 distinct spike days). The daily-maximum fetch is one additional `GetMetricData` call per region per scan.
 - **gp2/gp3 pricing coverage.** The gp2→gp3 migration savings estimate is backed by curated on-demand rates for all 17 regions this tool has been verified against (WO-233, sourced from the AWS Price List API) — gp3 was confirmed cheaper than gp2 in every one of them, by ~20% consistently. A region outside that set still falls back to us-east-1 pricing for both volume types, which may not reflect the real gp2/gp3 delta (or lack thereof) there.
 - **CloudWatch Agent-dependent overrides.** Memory- and GPU-aware idle detection for EC2 (`--high-memory-threshold`) both require the CloudWatch Agent's respective plugins (`mem_used_percent`, `utilization_gpu`) to be installed and reporting; without them, detection silently falls back to CPU-only. GPU utilization metrics are NVIDIA-agent-based — Inferentia (inf1/inf2) and Trainium (trn1) instances report via separate Neuron metrics not currently read, so GPU-aware detection is inert for those families today.
 - **CloudTrail-corrected timestamps are best-effort.** `DETACHED_EBS`/`STOPPED_EC2` day-counts prefer a real CloudTrail `DetachVolume`/`StopInstances` event over the CreateTime/LaunchTime-based estimate, but only when `cloudtrail:LookupEvents` is granted and the event falls within CloudTrail's default ~90-day event history (or longer, if a custom trail with extended retention is configured) — accounts without a trail, or events older than that window, fall back to the less-precise CreateTime/LaunchTime estimate.
