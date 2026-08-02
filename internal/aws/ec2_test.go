@@ -1350,10 +1350,104 @@ func TestEC2Scanner_BurstCPUSpike_NodeGroupCoexists(t *testing.T) {
 	}
 }
 
+func TestEC2Scanner_BurstCPUSpike_InsufficientHistory_Suppressed(t *testing.T) {
+	// WO-254: an instance younger than the lookback window has partial-day
+	// CloudWatch buckets that could read as false spike days (boot/deploy
+	// noise), and the X/Y-days denominator would be misleading. Burst
+	// detection is gated on sufficient history and must NOT fire here even
+	// though the daily-max series nominally shows 2 spike days.
+	launchTime := time.Now().UTC().Add(-1 * 24 * time.Hour) // 1 day old, < 7-day window
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-young-burst"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+				LaunchTime:   &launchTime,
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-young-burst": 2.0}, nil, nil,
+		map[string][]float64{"i-young-burst": {45, 45}}, // nominally 2 spike days
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleCPUBurstThreshold: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding (still surfaces, just not burst-annotated), got %d", len(result.Findings))
+	}
+	f := result.Findings[0]
+	if f.Severity != SeverityHigh {
+		t.Fatalf("expected high severity (burst suppressed by insufficient-history gate), got %s", f.Severity)
+	}
+	if f.RemediationPath != RemediationDirect && f.RemediationPath != "" {
+		t.Fatalf("expected direct/empty remediation, got %s", f.RemediationPath)
+	}
+	if strings.Contains(f.Message, "daily CPU max reached") {
+		t.Fatalf("expected NO burst annotation for an insufficient-history instance, got %q", f.Message)
+	}
+	if f.Metadata["burst_cpu_days"] != nil {
+		t.Fatalf("expected no burst metadata, got %v", f.Metadata["burst_cpu_days"])
+	}
+	if f.Metadata["sufficient_history"] != false {
+		t.Fatalf("expected sufficient_history=false for a 1-day-old instance, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
+func TestEC2Scanner_BurstCPUSpike_SufficientHistory_Fires(t *testing.T) {
+	// WO-254 regression guard: the same daily-max spike pattern that is
+	// suppressed for an insufficient-history instance MUST fire for an
+	// instance with sufficient history (running longer than the window) —
+	// the gate suppresses young instances, not the burst signal itself.
+	launchTime := time.Now().UTC().Add(-30 * 24 * time.Hour) // 30 days old, > 7-day window
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-old-burst"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+				LaunchTime:   &launchTime,
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-old-burst": 2.0}, nil, nil,
+		map[string][]float64{"i-old-burst": {2, 45, 3, 3, 47, 2, 4}},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleCPUBurstThreshold: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+	f := result.Findings[0]
+	if f.Severity != SeverityMedium {
+		t.Fatalf("expected medium severity (burst fires for sufficient history), got %s", f.Severity)
+	}
+	if f.Metadata["burst_cpu_days"] != 2 {
+		t.Fatalf("expected burst_cpu_days=2, got %v", f.Metadata["burst_cpu_days"])
+	}
+	if f.Metadata["sufficient_history"] != true {
+		t.Fatalf("expected sufficient_history=true for a 30-day-old instance, got %v", f.Metadata["sufficient_history"])
+	}
+}
+
 func TestEC2Scanner_BurstCPUSpike_GPUOverrideStillSkips(t *testing.T) {
 	// A GPU instance that is GPU-saturated must still be skipped entirely by
 	// the GPU override — burst detection must not resurrect a finding the GPU
 	// override already ruled out, even with a strong daily spike pattern.
+	// F3: the detectCPUBurstCalls counter pins the ORDERING — the GPU override
+	// must `continue` before burst detection is ever reached, so the counter
+	// stays 0. Without this, the test would pass even if burst ran first and
+	// its mutations were silently discarded by the later continue.
+	detectCPUBurstCalls = 0
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1376,6 +1470,126 @@ func TestEC2Scanner_BurstCPUSpike_GPUOverrideStillSkips(t *testing.T) {
 	}
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings (GPU override skips before burst check), got %d", len(result.Findings))
+	}
+	if detectCPUBurstCalls != 0 {
+		t.Fatalf("expected detectCPUBurst to never run for a GPU-saturated instance (override must precede burst), got %d calls", detectCPUBurstCalls)
+	}
+}
+
+func TestEC2Scanner_BurstCPUSpike_MemoryOverrideStillSkips(t *testing.T) {
+	// G2: an instance with high memory utilization must be skipped by the
+	// memory override before burst detection is reached — symmetric to the
+	// GPU override case above.
+	detectCPUBurstCalls = 0
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-membusy-burst"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-membusy-burst": 2.0},
+		map[string]float64{"i-membusy-burst": 85.0}, // high memory → override skips
+		nil,
+		map[string][]float64{"i-membusy-burst": {2, 80, 3, 80, 2, 2, 3}},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleCPUBurstThreshold: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings (memory override skips before burst check), got %d", len(result.Findings))
+	}
+	if detectCPUBurstCalls != 0 {
+		t.Fatalf("expected detectCPUBurst to never run for a memory-busy instance, got %d calls", detectCPUBurstCalls)
+	}
+}
+
+func TestEC2Scanner_BurstData_NotIdleAverage_NoFinding(t *testing.T) {
+	// G3: burst lives inside the avgCPU < IdleCPUThreshold guard. An instance
+	// whose AVERAGE CPU is above the idle threshold is not flagged IDLE_EC2 at
+	// all, so burst detection is never evaluated regardless of the daily-max
+	// series. Guards against a future refactor that moves burst outside the
+	// idle guard.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-busy-avg"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-busy-avg": 40.0}, // average well above idle threshold
+		nil, nil,
+		map[string][]float64{"i-busy-avg": {40, 80, 40, 80, 40, 40, 40}},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleCPUBurstThreshold: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no IDLE_EC2 finding for a non-idle average CPU, got %d", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_BurstDailyMaxFetchError_FindingStillSurfaces(t *testing.T) {
+	// G1: if the per-day Maximum fetch fails, the finding must still surface
+	// WITHOUT a burst annotation — burst detection is optional, never blocking.
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-maxerr"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+			}}},
+		},
+	}
+	// Custom mock: Average CPU returns normally, but a Maximum-stat query
+	// returns an error (simulating transient throttling of the burst fetch).
+	metrics := NewMetricsFetcher(&mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			for _, q := range input.MetricDataQueries {
+				if q.MetricStat != nil && derefStat(q.MetricStat.Stat) == "Maximum" {
+					return nil, fmt.Errorf("simulated Maximum-fetch throttling")
+				}
+			}
+			var results []cwtypes.MetricDataResult
+			for i, q := range input.MetricDataQueries {
+				if q.MetricStat == nil || len(q.MetricStat.Metric.Dimensions) == 0 {
+					continue
+				}
+				instID := *q.MetricStat.Metric.Dimensions[0].Value
+				if instID == "i-maxerr" {
+					results = append(results, cwtypes.MetricDataResult{Id: awssdk.String(fmt.Sprintf("m%d", i)), Values: []float64{2.0}})
+				}
+			}
+			return &cloudwatch.GetMetricDataOutput{MetricDataResults: results}, nil
+		},
+	})
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleCPUBurstThreshold: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding (burst fetch failure must not suppress it), got %d", len(result.Findings))
+	}
+	f := result.Findings[0]
+	if strings.Contains(f.Message, "daily CPU max reached") {
+		t.Fatalf("expected NO burst annotation when the Maximum fetch failed, got %q", f.Message)
+	}
+	if f.Metadata["burst_cpu_days"] != nil {
+		t.Fatalf("expected no burst metadata on fetch failure, got %v", f.Metadata["burst_cpu_days"])
 	}
 }
 

@@ -145,6 +145,77 @@ func metricDimensionValue(dimensions []cwtypes.Dimension, name string) string {
 	return ""
 }
 
+func TestMetricsFetcher_FetchDailyMaximum(t *testing.T) {
+	// WO-247/F4: direct unit test for FetchDailyMaximum — exercises the
+	// series return (no aggregation), the "m%d" ID remap, the daily period,
+	// and the defensive slice copy independently of the EC2 scanner.
+	var captured *cloudwatch.GetMetricDataInput
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			captured = input
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{Id: awssdk.String("m0"), Values: []float64{5, 60, 5, 70}},
+					{Id: awssdk.String("m1"), Values: []float64{2, 3, 2}},
+				},
+			}, nil
+		},
+	}
+
+	fetcher := NewMetricsFetcher(mock)
+	result, err := fetcher.FetchDailyMaximum(context.Background(), "AWS/EC2", "CPUUtilization", "InstanceId", []string{"i-001", "i-002"}, 7)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	// Series returned verbatim (NOT averaged/summed) and in order.
+	if got := result["i-001"]; len(got) != 4 || got[0] != 5 || got[1] != 60 || got[3] != 70 {
+		t.Fatalf("expected i-001 series [5 60 5 70], got %v", got)
+	}
+	if got := result["i-002"]; len(got) != 3 || got[1] != 3 {
+		t.Fatalf("expected i-002 series [2 3 2], got %v", got)
+	}
+
+	// The daily-period (86400s) and Maximum stat must reach the API.
+	if captured == nil || len(captured.MetricDataQueries) != 2 {
+		t.Fatalf("expected 2 captured queries, got %#v", captured)
+	}
+	q := captured.MetricDataQueries[0]
+	if awssdk.ToInt32(q.MetricStat.Period) != 86400 {
+		t.Fatalf("expected daily Period 86400, got %d", awssdk.ToInt32(q.MetricStat.Period))
+	}
+	if awssdk.ToString(q.MetricStat.Stat) != "Maximum" {
+		t.Fatalf("expected Maximum stat, got %s", awssdk.ToString(q.MetricStat.Stat))
+	}
+}
+
+func TestMetricsFetcher_FetchDailyMaximum_SliceNotAliased(t *testing.T) {
+	// The fetcher must copy the SDK's Values slice so a caller mutating its
+	// returned series cannot corrupt the mock's backing data.
+	sdkValues := []float64{1, 2, 3}
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{Id: awssdk.String("m0"), Values: sdkValues},
+				},
+			}, nil
+		},
+	}
+	fetcher := NewMetricsFetcher(mock)
+	result, err := fetcher.FetchDailyMaximum(context.Background(), "AWS/EC2", "CPUUtilization", "InstanceId", []string{"i-001"}, 7)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Mutate the returned series — the SDK-backed slice must be unaffected.
+	result["i-001"][0] = 999
+	if sdkValues[0] != 1 {
+		t.Fatalf("expected SDK slice to be copied (unaffected by caller mutation), sdkValues=%v", sdkValues)
+	}
+}
+
 func TestMetricsFetcher_NoDataPoints(t *testing.T) {
 	mock := &mockCloudWatchClient{
 		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {

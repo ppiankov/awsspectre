@@ -33,7 +33,15 @@ const minBurstDays = 2
 // spike-day count, the peak daily max observed, and whether the burst pattern
 // holds. An empty/short series (e.g. a brand-new instance with <1 day of data)
 // cannot be "recurring" and reports no burst.
+//
+// detectCPUBurstCalls is a test-observability counter (tests reset it per
+// case) so a test can assert burst detection was never reached for an instance
+// skipped by an earlier override (GPU/memory) — pinning the
+// override-before-burst ordering. Not consulted by production logic.
+var detectCPUBurstCalls int
+
 func detectCPUBurst(dailyMaxima []float64, burstThreshold float64) (spikeDays int, peakMax float64, ok bool) {
+	detectCPUBurstCalls++
 	for _, m := range dailyMaxima {
 		if m > peakMax {
 			peakMax = m
@@ -299,16 +307,26 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 					// node-group: burst only adds metadata + an annotation and
 					// never overrides an already-down-ranked severity or a
 					// more-specific via_controller remediation path.
-					if spikeDays, peakMax, ok := detectCPUBurst(dailyMaxMap[id], burstThreshold); ok {
-						metadata["burst_cpu_days"] = spikeDays
-						metadata["burst_cpu_peak_percent"] = peakMax
-						metadata["burst_threshold_percent"] = burstThreshold
-						msg = fmt.Sprintf("%s — daily CPU max reached %.0f%% on %d/%d days (periodic/scheduled activity suspected; review before terminating)", msg, peakMax, spikeDays, len(dailyMaxMap[id]))
-						if severity == SeverityHigh {
-							severity = SeverityMedium
-						}
-						if remediationPath == RemediationDirect {
-							remediationPath = RemediationNeedsReview
+					//
+					// WO-254: gated on `sufficient` running history. CloudWatch
+					// Period=86400 buckets align to UTC midnight, so a young
+					// instance's partial-day buckets can read as false spike
+					// days (boot/deploy noise), and the X/Y-days denominator is
+					// misleading when Y < the configured window. Skip burst
+					// detection entirely for insufficient history — the
+					// idleWindowDescription message already discloses the gap.
+					if sufficient {
+						if spikeDays, peakMax, ok := detectCPUBurst(dailyMaxMap[id], burstThreshold); ok {
+							metadata["burst_cpu_days"] = spikeDays
+							metadata["burst_cpu_peak_percent"] = peakMax
+							metadata["burst_threshold_percent"] = burstThreshold
+							msg = fmt.Sprintf("%s — daily CPU max reached %.0f%% on %d/%d days (periodic/scheduled activity suspected; review before terminating)", msg, peakMax, spikeDays, len(dailyMaxMap[id]))
+							if severity == SeverityHigh {
+								severity = SeverityMedium
+							}
+							if remediationPath == RemediationDirect {
+								remediationPath = RemediationNeedsReview
+							}
 						}
 					}
 
