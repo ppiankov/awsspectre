@@ -1447,7 +1447,7 @@ func TestEC2Scanner_BurstCPUSpike_GPUOverrideStillSkips(t *testing.T) {
 	// must `continue` before burst detection is ever reached, so the counter
 	// stays 0. Without this, the test would pass even if burst ran first and
 	// its mutations were silently discarded by the later continue.
-	detectCPUBurstCalls = 0
+	detectCPUBurstCalls.Store(0)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1471,8 +1471,8 @@ func TestEC2Scanner_BurstCPUSpike_GPUOverrideStillSkips(t *testing.T) {
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings (GPU override skips before burst check), got %d", len(result.Findings))
 	}
-	if detectCPUBurstCalls != 0 {
-		t.Fatalf("expected detectCPUBurst to never run for a GPU-saturated instance (override must precede burst), got %d calls", detectCPUBurstCalls)
+	if detectCPUBurstCalls.Load() != 0 {
+		t.Fatalf("expected detectCPUBurst to never run for a GPU-saturated instance (override must precede burst), got %d calls", detectCPUBurstCalls.Load())
 	}
 }
 
@@ -1480,7 +1480,7 @@ func TestEC2Scanner_BurstCPUSpike_MemoryOverrideStillSkips(t *testing.T) {
 	// G2: an instance with high memory utilization must be skipped by the
 	// memory override before burst detection is reached — symmetric to the
 	// GPU override case above.
-	detectCPUBurstCalls = 0
+	detectCPUBurstCalls.Store(0)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1505,8 +1505,8 @@ func TestEC2Scanner_BurstCPUSpike_MemoryOverrideStillSkips(t *testing.T) {
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected no findings (memory override skips before burst check), got %d", len(result.Findings))
 	}
-	if detectCPUBurstCalls != 0 {
-		t.Fatalf("expected detectCPUBurst to never run for a memory-busy instance, got %d calls", detectCPUBurstCalls)
+	if detectCPUBurstCalls.Load() != 0 {
+		t.Fatalf("expected detectCPUBurst to never run for a memory-busy instance, got %d calls", detectCPUBurstCalls.Load())
 	}
 }
 

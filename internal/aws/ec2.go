@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -37,11 +38,15 @@ const minBurstDays = 2
 // detectCPUBurstCalls is a test-observability counter (tests reset it per
 // case) so a test can assert burst detection was never reached for an instance
 // skipped by an earlier override (GPU/memory) — pinning the
-// override-before-burst ordering. Not consulted by production logic.
-var detectCPUBurstCalls int
+// override-before-burst ordering. Not consulted by production logic. It is an
+// atomic because production's MultiRegionScanner runs regions concurrently
+// (each with its own EC2Scanner but sharing this package-global), so a plain
+// int would be a data race under -race even though the value is unused in
+// production — WO-256.
+var detectCPUBurstCalls atomic.Int64
 
 func detectCPUBurst(dailyMaxima []float64, burstThreshold float64) (spikeDays int, peakMax float64, ok bool) {
-	detectCPUBurstCalls++
+	detectCPUBurstCalls.Add(1)
 	for _, m := range dailyMaxima {
 		if m > peakMax {
 			peakMax = m
