@@ -21,6 +21,7 @@ type Config struct {
 	HighMemoryThreshold  float64  `yaml:"high_memory_threshold"`
 	StoppedThresholdDays int      `yaml:"stopped_threshold_days"`
 	NATGWLowTrafficGB    float64  `yaml:"nat_gw_low_traffic_gb"`
+	ECRUntaggedThreshold int      `yaml:"ecr_untagged_threshold"`
 	Format               string   `yaml:"format"`
 	Timeout              string   `yaml:"timeout"`
 	Exclude              Exclude  `yaml:"exclude"`

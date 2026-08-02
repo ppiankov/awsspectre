@@ -180,3 +180,14 @@ func MonthlyCloudWatchLogsStorageCost(storedBytes int64, region string) float64 
 	gib := float64(storedBytes) / bytesPerGiB
 	return perGiB * gib
 }
+
+// MonthlyECRStorageCost returns the estimated monthly storage cost for an ECR
+// repository's untagged images, given their total size in bytes.
+func MonthlyECRStorageCost(storedBytes int64, region string) float64 {
+	perGiB, ok := lookupHourly("ecr", "default", region)
+	if !ok {
+		return 0
+	}
+	gib := float64(storedBytes) / bytesPerGiB
+	return perGiB * gib
+}

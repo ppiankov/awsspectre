@@ -99,6 +99,7 @@ timeout: 10m
 # high_memory_threshold: 50.0
 # stopped_threshold_days: 30
 # nat_gw_low_traffic_gb: 1.0
+# ecr_untagged_threshold: 20
 
 # Resources to exclude from scanning
 # exclude:
@@ -113,6 +114,7 @@ timeout: 10m
 // WO-221: also covers CloudWatch Logs retention/tag inventory.
 // WO-232: also covers Auto Scaling Group / launch template inspection for
 // ASG-referenced security group detection.
+// WO-225: also covers ECR repository/image inventory.
 const sampleIAMPolicy = `{
   "Version": "2012-10-17",
   "Statement": [
@@ -157,6 +159,9 @@ const sampleIAMPolicy = `{
         "cloudwatch:GetMetricData",
         "logs:DescribeLogGroups",
         "logs:ListTagsForResource",
+        "ecr:DescribeRepositories",
+        "ecr:GetLifecyclePolicy",
+        "ecr:DescribeImages",
         "cloudtrail:LookupEvents",
         "sts:GetCallerIdentity"
       ],

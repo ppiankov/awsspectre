@@ -109,3 +109,28 @@ func TestSampleIAMPolicyIncludesASGReferencedSecurityGroupPermissions(t *testing
 		}
 	}
 }
+
+func TestSampleIAMPolicyIncludesECRScanPermissions(t *testing.T) {
+	var policy samplePolicyDocument
+	if err := json.Unmarshal([]byte(sampleIAMPolicy), &policy); err != nil {
+		t.Fatalf("unmarshal sample IAM policy: %v", err)
+	}
+
+	actions := make(map[string]bool, len(policy.Statement[0].Action))
+	for _, action := range policy.Statement[0].Action {
+		actions[action] = true
+	}
+
+	// WO-225: the ECR scanner calls these to list repositories, check for a
+	// configured lifecycle policy, and count untagged images.
+	required := []string{
+		"ecr:DescribeRepositories",
+		"ecr:GetLifecyclePolicy",
+		"ecr:DescribeImages",
+	}
+	for _, action := range required {
+		if !actions[action] {
+			t.Errorf("expected sample IAM policy to include %s", action)
+		}
+	}
+}

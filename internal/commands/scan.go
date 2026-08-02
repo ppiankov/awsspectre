@@ -26,6 +26,7 @@ var scanFlags struct {
 	highMemoryThreshold  float64
 	stoppedThresholdDays int
 	natGWLowTrafficGB    float64
+	ecrUntaggedThreshold int
 	excludeTags          []string
 	noProgress           bool
 	timeout              time.Duration
@@ -51,6 +52,7 @@ func init() {
 	scanCmd.Flags().Float64Var(&scanFlags.highMemoryThreshold, "high-memory-threshold", 0, "Memory % above which a resource is not idle (default: 50)")
 	scanCmd.Flags().IntVar(&scanFlags.stoppedThresholdDays, "stopped-threshold-days", 0, "Days stopped before flagging EC2 (default: 30)")
 	scanCmd.Flags().Float64Var(&scanFlags.natGWLowTrafficGB, "nat-gw-low-traffic-gb", 0, "NAT Gateway monthly GB below which to flag as low traffic (default: 1)")
+	scanCmd.Flags().IntVar(&scanFlags.ecrUntaggedThreshold, "ecr-untagged-threshold", 0, "Number of untagged images in an ECR repository before flagging as waste (default: 20)")
 	scanCmd.Flags().StringSliceVar(&scanFlags.excludeTags, "exclude-tags", nil, "Exclude resources by tag (Key=Value or Key, comma-separated)")
 	scanCmd.Flags().BoolVar(&scanFlags.noProgress, "no-progress", false, "Disable progress output")
 	scanCmd.Flags().DurationVar(&scanFlags.timeout, "timeout", 10*time.Minute, "Scan timeout")
@@ -106,6 +108,10 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	if scanFlags.natGWLowTrafficGB > 0 {
 		natGWTraffic = scanFlags.natGWLowTrafficGB
 	}
+	ecrUntaggedThreshold := 20
+	if scanFlags.ecrUntaggedThreshold > 0 {
+		ecrUntaggedThreshold = scanFlags.ecrUntaggedThreshold
+	}
 
 	// Build exclusion rules from config file and CLI flags
 	excludeIDs := make(map[string]bool, len(cfg.Exclude.ResourceIDs))
@@ -132,6 +138,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		HighMemoryThreshold:  memThresh,
 		StoppedThresholdDays: stoppedDays,
 		NATGWLowTrafficGB:    natGWTraffic,
+		ECRUntaggedThreshold: ecrUntaggedThreshold,
 		Exclude: aws.ExcludeConfig{
 			ResourceIDs: excludeIDs,
 			Tags:        excludeTags,
@@ -229,6 +236,9 @@ func applyConfigDefaults(cmd *cobra.Command) {
 	}
 	if !changed("nat-gw-low-traffic-gb") && cfg.NATGWLowTrafficGB > 0 {
 		scanFlags.natGWLowTrafficGB = cfg.NATGWLowTrafficGB
+	}
+	if !changed("ecr-untagged-threshold") && cfg.ECRUntaggedThreshold > 0 {
+		scanFlags.ecrUntaggedThreshold = cfg.ECRUntaggedThreshold
 	}
 	if !changed("timeout") {
 		if d := cfg.TimeoutDuration(); d > 0 {

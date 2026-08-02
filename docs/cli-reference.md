@@ -43,6 +43,7 @@ awsspectre scan [flags]
 | `--high-memory-threshold` | `50.0` | Memory (or, for GPU instances, GPU utilization) % above which a resource is not idle |
 | `--stopped-threshold-days` | `30` | Days stopped before flagging EC2 |
 | `--nat-gw-low-traffic-gb` | `1.0` | NAT Gateway monthly GB below which to flag as low traffic |
+| `--ecr-untagged-threshold` | `20` | Number of untagged images in an ECR repository before flagging as waste |
 | `--exclude-tags` | | Exclude resources by tag (`Key=Value` or `Key`, comma-separated) |
 | `--format` | `text` | Output format: `text`, `json`, `sarif`, `spectrehub` |
 | `-o, --output` | stdout | Output file path |
@@ -97,6 +98,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `sqs:ListQueues`, `sqs:GetQueueAttributes`, `sqs:ListQueueTags`
 - `sns:ListTopics`, `sns:ListSubscriptionsByTopic`, `sns:ListTagsForResource`
 - `logs:DescribeLogGroups`, `logs:ListTagsForResource`
+- `ecr:DescribeRepositories`, `ecr:GetLifecyclePolicy`, `ecr:DescribeImages`
 - `cloudfront:ListDistributions`, `cloudfront:ListTagsForResource`
 - `cloudwatch:GetMetricData`
 - `cloudtrail:LookupEvents` (optional)
@@ -152,7 +154,8 @@ awsspectre/
 │   │   ├── kinesis.go             # Kinesis: idle streams, over-provisioned shards, idle Firehose
 │   │   ├── sqs.go                 # SQS: idle queues, no-consumer, orphaned DLQs
 │   │   ├── sns.go                 # SNS: no subscribers, idle topics
-│   │   └── logs.go                # CloudWatch Logs: no retention policy
+│   │   ├── logs.go                # CloudWatch Logs: no retention policy
+│   │   └── ecr.go                 # ECR: no lifecycle policy, untagged-image sprawl
 │   ├── pricing/                   # Embedded on-demand pricing (go:embed)
 │   ├── analyzer/                  # Filter by min cost, compute summary
 │   └── report/                    # Text, JSON, SARIF, SpectreHub reporters
@@ -178,7 +181,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, snapshots, and security groups | Complete |
+| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, ECR, snapshots, and security groups | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |
@@ -208,3 +211,5 @@ Pre-1.0: CLI flags and config schemas may change between minor versions. JSON ou
 - **Excluded source queues break DLQ suppression.** `SQS_IDLE` excludes a queue that's the `deadLetterTargetArn` of another live queue's `RedrivePolicy`, since an empty, healthy DLQ is expected, not waste. That exclusion set is built only from queues that survive `--exclude-tags`/`resource_ids` filtering — excluding the source queue while leaving its DLQ unexcluded causes the DLQ to lose this protection and reappear as a `SQS_IDLE` finding.
 - **`remediation_path` is only actively classified by a subset of scanners today.** ELB and `IDLE_EC2` set `via_controller` for Kubernetes/EKS/Auto Scaling Group-managed resources; `DETACHED_EBS` sets `needs_review` for volumes carrying AWS EBS CSI driver tags. Every other scanner (and every other finding) defaults to `direct`, which means "not yet classified," not "verified safe to delete directly." Treat `direct` as the absence of a more specific classification, not a positive assertion. `needs_review` classifications are AWS-side tag inspection only — the tool cannot verify against a live Kubernetes cluster whether a PersistentVolume/PVC still exists, so a volume whose owning cluster was torn down long ago (tags persist regardless) can be permanently classified `needs_review` even though it's genuinely orphaned; `kubectl get pv` verification (named in the finding's message) is the only way to confirm current state.
 - **`IDLE_EC2` node-group detection is AWS-side tag inspection only**, same caveat as `DETACHED_EBS` above: an instance tagged by a node group whose EKS cluster or Auto Scaling Group has since been deleted (tags persist regardless) stays classified `via_controller` even though direct termination may now be correct.
+- **ECR scanner does not check repository tags.** `ECR_NO_LIFECYCLE_POLICY` and `ECR_UNTAGGED_IMAGE_SPRAWL` only support exclusion by resource ID (`--exclude-tags` with resource IDs, or the `resource_ids` config key); tag-based exclusion has no effect on ECR findings, since checking repository tags would require a separate `ecr:ListTagsForResource` call this scanner doesn't make.
+- **`--ecr-untagged-threshold=0` is not distinguishable from unset** and silently falls back to the default of 20, the same 0-as-sentinel limitation shared by every other numeric threshold flag (`--idle-cpu-threshold`, `--high-memory-threshold`, `--stopped-threshold-days`, `--nat-gw-low-traffic-gb`) — there is currently no way to request "flag a repository with any untagged image at all."

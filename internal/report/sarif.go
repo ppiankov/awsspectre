@@ -162,5 +162,8 @@ func buildSARIFRules() []sarifRule {
 		{ID: string(awstype.FindingLogGroupNoRetention), ShortDescription: sarifMessage{Text: "CloudWatch Log Group with no retention policy"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 		// WO-222: gp2 migration candidate finding needs a declared SARIF rule.
 		{ID: string(awstype.FindingGP2MigrationCandidate), ShortDescription: sarifMessage{Text: "gp2 EBS volume is a gp3 migration candidate"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
+		// WO-225: ECR findings need declared SARIF rules.
+		{ID: string(awstype.FindingECRNoLifecyclePolicy), ShortDescription: sarifMessage{Text: "ECR repository with no lifecycle policy"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
+		{ID: string(awstype.FindingECRUntaggedImageSprawl), ShortDescription: sarifMessage{Text: "ECR repository with untagged-image sprawl"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},
 	}
 }
