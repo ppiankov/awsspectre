@@ -72,6 +72,72 @@ func TestMonthlyEBSCost_UnknownType(t *testing.T) {
 	}
 }
 
+// TestGP3CheaperThanGP2_AllScannedRegions verifies the assumption behind
+// GP2_MIGRATION_CANDIDATE (WO-222): that gp3 is cheaper than gp2 per GiB, in
+// every one of the 17 regions this tool actually scans (all AWS regions with
+// OptInStatus opt-in-not-required or opted-in as of this WO's live account
+// check) — not just the 4 regions previously hardcoded. Exact rates are
+// asserted, not just the gp3<gp2 relation, because lookupHourly's us-east-1
+// fallback (pricing.go) would ALSO satisfy gp3<gp2 for any region missing
+// from pricing.json — a relation-only check can't distinguish "real
+// per-region data present" from "silently fell back to us-east-1." Rates
+// below are pulled from the AWS Price List API (aws pricing get-products,
+// publicationDate 2026-07-28) — WO-233. No inversion was found anywhere;
+// this test is the regression guard for that finding, not a fix for one.
+func TestGP3CheaperThanGP2_AllScannedRegions(t *testing.T) {
+	// Regions whose real rate differs from the us-east-1 fallback (0.10/0.08)
+	// prove the lookup isn't silently falling back — us-east-1/us-east-2/
+	// us-west-2 genuinely share us-east-1's rate, so they're excluded from
+	// this specific proof but still covered by the gp3<gp2 loop below.
+	wantRates := map[string]struct{ gp2, gp3 float64 }{
+		"us-west-1":      {0.12, 0.096},
+		"ca-central-1":   {0.11, 0.088},
+		"sa-east-1":      {0.19, 0.152},
+		"eu-west-1":      {0.11, 0.088},
+		"eu-west-2":      {0.116, 0.0928},
+		"eu-west-3":      {0.116, 0.0928},
+		"eu-central-1":   {0.119, 0.0952},
+		"eu-north-1":     {0.1045, 0.0836},
+		"ap-south-1":     {0.114, 0.0912},
+		"ap-southeast-1": {0.12, 0.096},
+		"ap-southeast-2": {0.12, 0.096},
+		"ap-northeast-1": {0.12, 0.096},
+		"ap-northeast-2": {0.114, 0.0912},
+		"ap-northeast-3": {0.12, 0.096},
+	}
+	for region, want := range wantRates {
+		gp2, _ := lookupHourly("ebs", "gp2", region)
+		if gp2 != want.gp2 {
+			t.Errorf("%s: gp2 = $%.4f, want $%.4f (real per-region data, not the us-east-1 fallback of $0.10)", region, gp2, want.gp2)
+		}
+		gp3, _ := lookupHourly("ebs", "gp3", region)
+		if gp3 != want.gp3 {
+			t.Errorf("%s: gp3 = $%.4f, want $%.4f (real per-region data, not the us-east-1 fallback of $0.08)", region, gp3, want.gp3)
+		}
+	}
+
+	scannedRegions := []string{
+		"us-east-1", "us-east-2", "us-west-1", "us-west-2",
+		"ca-central-1", "sa-east-1",
+		"eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-north-1",
+		"ap-south-1", "ap-southeast-1", "ap-southeast-2",
+		"ap-northeast-1", "ap-northeast-2", "ap-northeast-3",
+	}
+	for _, region := range scannedRegions {
+		gp2, ok := lookupHourly("ebs", "gp2", region)
+		if !ok {
+			t.Fatalf("%s: no gp2 pricing entry", region)
+		}
+		gp3, ok := lookupHourly("ebs", "gp3", region)
+		if !ok {
+			t.Fatalf("%s: no gp3 pricing entry", region)
+		}
+		if gp3 >= gp2 {
+			t.Errorf("%s: gp3 ($%.4f) is not cheaper than gp2 ($%.4f) — GP2_MIGRATION_CANDIDATE's assumption is violated here", region, gp3, gp2)
+		}
+	}
+}
+
 func TestMonthlyEIPCost(t *testing.T) {
 	cost := MonthlyEIPCost("us-east-1")
 	if cost == 0 {

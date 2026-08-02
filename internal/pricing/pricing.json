@@ -30,8 +30,20 @@
     "trn1.2xlarge":{"us-east-1": 1.34375,  "us-west-2": 1.34375,  "eu-west-1": 1.4983,  "ap-southeast-1": 1.6125}
   },
   "ebs": {
-    "gp2": {"us-east-1": 0.10, "us-west-2": 0.10, "eu-west-1": 0.11, "ap-southeast-1": 0.12},
-    "gp3": {"us-east-1": 0.08, "us-west-2": 0.08, "eu-west-1": 0.088, "ap-southeast-1": 0.096},
+    "gp2": {
+      "us-east-1": 0.10, "us-east-2": 0.10, "us-west-1": 0.12, "us-west-2": 0.10,
+      "ca-central-1": 0.11, "sa-east-1": 0.19,
+      "eu-west-1": 0.11, "eu-west-2": 0.116, "eu-west-3": 0.116, "eu-central-1": 0.119, "eu-north-1": 0.1045,
+      "ap-south-1": 0.114, "ap-southeast-1": 0.12, "ap-southeast-2": 0.12,
+      "ap-northeast-1": 0.12, "ap-northeast-2": 0.114, "ap-northeast-3": 0.12
+    },
+    "gp3": {
+      "us-east-1": 0.08, "us-east-2": 0.08, "us-west-1": 0.096, "us-west-2": 0.08,
+      "ca-central-1": 0.088, "sa-east-1": 0.152,
+      "eu-west-1": 0.088, "eu-west-2": 0.0928, "eu-west-3": 0.0928, "eu-central-1": 0.0952, "eu-north-1": 0.0836,
+      "ap-south-1": 0.0912, "ap-southeast-1": 0.096, "ap-southeast-2": 0.096,
+      "ap-northeast-1": 0.096, "ap-northeast-2": 0.0912, "ap-northeast-3": 0.096
+    },
     "io1": {"us-east-1": 0.125, "us-west-2": 0.125, "eu-west-1": 0.138, "ap-southeast-1": 0.15},
     "io2": {"us-east-1": 0.125, "us-west-2": 0.125, "eu-west-1": 0.138, "ap-southeast-1": 0.15},
     "st1": {"us-east-1": 0.045, "us-west-2": 0.045, "eu-west-1": 0.05, "ap-southeast-1": 0.054},
