@@ -15,21 +15,22 @@ import (
 )
 
 var scanFlags struct {
-	regions              []string
-	allRegions           bool
-	idleDays             int
-	staleDays            int
-	format               string
-	outputFile           string
-	minMonthlyCost       float64
-	idleCPUThreshold     float64
-	highMemoryThreshold  float64
-	stoppedThresholdDays int
-	natGWLowTrafficGB    float64
-	ecrUntaggedThreshold int
-	excludeTags          []string
-	noProgress           bool
-	timeout              time.Duration
+	regions               []string
+	allRegions            bool
+	idleDays              int
+	staleDays             int
+	format                string
+	outputFile            string
+	minMonthlyCost        float64
+	idleCPUThreshold      float64
+	highMemoryThreshold   float64
+	idleCPUBurstThreshold float64
+	stoppedThresholdDays  int
+	natGWLowTrafficGB     float64
+	ecrUntaggedThreshold  int
+	excludeTags           []string
+	noProgress            bool
+	timeout               time.Duration
 }
 
 var scanCmd = &cobra.Command{
@@ -50,6 +51,7 @@ func init() {
 	scanCmd.Flags().Float64Var(&scanFlags.minMonthlyCost, "min-monthly-cost", 1.0, "Minimum monthly cost to report ($)")
 	scanCmd.Flags().Float64Var(&scanFlags.idleCPUThreshold, "idle-cpu-threshold", 0, "CPU % below which a resource is idle (default: 5)")
 	scanCmd.Flags().Float64Var(&scanFlags.highMemoryThreshold, "high-memory-threshold", 0, "Memory % above which a resource is not idle (default: 50)")
+	scanCmd.Flags().Float64Var(&scanFlags.idleCPUBurstThreshold, "idle-cpu-burst-threshold", 0, "Daily CPU max % that counts as a spike day for periodic/burst-workload detection (default: 30)")
 	scanCmd.Flags().IntVar(&scanFlags.stoppedThresholdDays, "stopped-threshold-days", 0, "Days stopped before flagging EC2 (default: 30)")
 	scanCmd.Flags().Float64Var(&scanFlags.natGWLowTrafficGB, "nat-gw-low-traffic-gb", 0, "NAT Gateway monthly GB below which to flag as low traffic (default: 1)")
 	scanCmd.Flags().IntVar(&scanFlags.ecrUntaggedThreshold, "ecr-untagged-threshold", 0, "Number of untagged images in an ECR repository before flagging as waste (default: 20)")
@@ -100,6 +102,10 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	if scanFlags.highMemoryThreshold > 0 {
 		memThresh = scanFlags.highMemoryThreshold
 	}
+	burstThresh := 30.0
+	if scanFlags.idleCPUBurstThreshold > 0 {
+		burstThresh = scanFlags.idleCPUBurstThreshold
+	}
 	stoppedDays := 30
 	if scanFlags.stoppedThresholdDays > 0 {
 		stoppedDays = scanFlags.stoppedThresholdDays
@@ -131,14 +137,15 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	}
 
 	scanCfg := aws.ScanConfig{
-		IdleDays:             scanFlags.idleDays,
-		StaleDays:            scanFlags.staleDays,
-		MinMonthlyCost:       scanFlags.minMonthlyCost,
-		IdleCPUThreshold:     cpuThresh,
-		HighMemoryThreshold:  memThresh,
-		StoppedThresholdDays: stoppedDays,
-		NATGWLowTrafficGB:    natGWTraffic,
-		ECRUntaggedThreshold: ecrUntaggedThreshold,
+		IdleDays:              scanFlags.idleDays,
+		StaleDays:             scanFlags.staleDays,
+		MinMonthlyCost:        scanFlags.minMonthlyCost,
+		IdleCPUThreshold:      cpuThresh,
+		HighMemoryThreshold:   memThresh,
+		IdleCPUBurstThreshold: burstThresh,
+		StoppedThresholdDays:  stoppedDays,
+		NATGWLowTrafficGB:     natGWTraffic,
+		ECRUntaggedThreshold:  ecrUntaggedThreshold,
 		Exclude: aws.ExcludeConfig{
 			ResourceIDs: excludeIDs,
 			Tags:        excludeTags,
@@ -230,6 +237,9 @@ func applyConfigDefaults(cmd *cobra.Command) {
 	}
 	if !changed("high-memory-threshold") && cfg.HighMemoryThreshold > 0 {
 		scanFlags.highMemoryThreshold = cfg.HighMemoryThreshold
+	}
+	if !changed("idle-cpu-burst-threshold") && cfg.IdleCPUBurstThreshold > 0 {
+		scanFlags.idleCPUBurstThreshold = cfg.IdleCPUBurstThreshold
 	}
 	if !changed("stopped-threshold-days") && cfg.StoppedThresholdDays > 0 {
 		scanFlags.stoppedThresholdDays = cfg.StoppedThresholdDays

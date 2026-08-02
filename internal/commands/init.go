@@ -97,6 +97,7 @@ timeout: 10m
 # Idle detection thresholds
 # idle_cpu_threshold: 5.0
 # high_memory_threshold: 50.0
+# idle_cpu_burst_threshold: 30.0
 # stopped_threshold_days: 30
 # nat_gw_low_traffic_gb: 1.0
 # ecr_untagged_threshold: 20

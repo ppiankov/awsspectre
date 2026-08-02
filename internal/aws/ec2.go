@@ -13,6 +13,38 @@ import (
 	"github.com/ppiankov/awsspectre/internal/pricing"
 )
 
+// defaultIdleCPUBurstThreshold is the daily-max CPU % that counts as a spike
+// day for WO-247 burst detection when ScanConfig.IdleCPUBurstThreshold is unset
+// (zero) — the defensive fallback for direct ScanConfig construction; the CLI
+// flag itself defaults to the same value. Well above the 5% idle floor so a
+// spike day reflects real work, not noise.
+const defaultIdleCPUBurstThreshold = 30.0
+
+// minBurstDays is the minimum number of distinct spike days within the
+// lookback window required to call a low-average instance "periodic/burst"
+// rather than flatly idle (WO-247). Two+ separate days rules out a one-off
+// (deploy, boot, patch) and is the smallest count that means "recurring."
+// Chosen as a const rather than a flag: it is a definitional threshold for
+// "recurring," not an ops-tunable.
+const minBurstDays = 2
+
+// detectCPUBurst reports whether dailyMaxima show a recurring spike pattern:
+// at least minBurstDays daily maxima at or above burstThreshold. Returns the
+// spike-day count, the peak daily max observed, and whether the burst pattern
+// holds. An empty/short series (e.g. a brand-new instance with <1 day of data)
+// cannot be "recurring" and reports no burst.
+func detectCPUBurst(dailyMaxima []float64, burstThreshold float64) (spikeDays int, peakMax float64, ok bool) {
+	for _, m := range dailyMaxima {
+		if m > peakMax {
+			peakMax = m
+		}
+		if m >= burstThreshold {
+			spikeDays++
+		}
+	}
+	return spikeDays, peakMax, spikeDays >= minBurstDays
+}
+
 // eksNodeGroupTagKeys are tags set by EKS-managed node groups and the
 // cluster-autoscaler/Karpenter on the EC2 instances they own. Any one of
 // these alone is a sufficient signal — the instance is scaled up/down by its
@@ -182,6 +214,21 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				gpuMap = make(map[string]float64)
 			}
 
+			// Fetch per-day CPU maxima for burst detection (WO-247): a flat
+			// CPU *average* structurally cannot see a periodic cron/batch/CI
+			// workload that spikes CPU at a consistent hour each day but sits
+			// near-idle the rest of the time. Optional — on failure the burst
+			// check is simply skipped, falling back to average-only behavior.
+			burstThreshold := cfg.IdleCPUBurstThreshold
+			if burstThreshold <= 0 {
+				burstThreshold = defaultIdleCPUBurstThreshold
+			}
+			dailyMaxMap, dailyMaxErr := s.metrics.FetchDailyMaximum(ctx, "AWS/EC2", "CPUUtilization", "InstanceId", runningIDs, cfg.IdleDays)
+			if dailyMaxErr != nil {
+				slog.Warn("Failed to fetch EC2 daily CPU maxima for burst detection", "region", s.region, "error", dailyMaxErr)
+				dailyMaxMap = make(map[string][]float64)
+			}
+
 			instanceMap := buildInstanceMap(instances)
 			for _, id := range runningIDs {
 				avgCPU, ok := cpuMap[id]
@@ -242,6 +289,27 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 						remediationPath = RemediationViaController
 						msg = fmt.Sprintf("%s — managed by an EKS/Auto Scaling Group node group; scale down via that node group instead of terminating the instance directly", msg)
 						metadata["node_group_managed"] = true
+					}
+
+					// WO-247: a low CPU average with recurring daily max spikes
+					// is evidence of periodic/scheduled activity (cron, batch,
+					// CI), not continuous idleness — disclose the burst signal
+					// and weaken the idle verdict rather than presenting a flat
+					// average as if it were continuous idleness. Composes under
+					// node-group: burst only adds metadata + an annotation and
+					// never overrides an already-down-ranked severity or a
+					// more-specific via_controller remediation path.
+					if spikeDays, peakMax, ok := detectCPUBurst(dailyMaxMap[id], burstThreshold); ok {
+						metadata["burst_cpu_days"] = spikeDays
+						metadata["burst_cpu_peak_percent"] = peakMax
+						metadata["burst_threshold_percent"] = burstThreshold
+						msg = fmt.Sprintf("%s — daily CPU max reached %.0f%% on %d/%d days (periodic/scheduled activity suspected; review before terminating)", msg, peakMax, spikeDays, len(dailyMaxMap[id]))
+						if severity == SeverityHigh {
+							severity = SeverityMedium
+						}
+						if remediationPath == RemediationDirect {
+							remediationPath = RemediationNeedsReview
+						}
 					}
 
 					result.Findings = append(result.Findings, Finding{
