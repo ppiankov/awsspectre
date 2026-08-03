@@ -20,6 +20,7 @@ type Config struct {
 	IdleCPUThreshold      float64  `yaml:"idle_cpu_threshold"`
 	HighMemoryThreshold   float64  `yaml:"high_memory_threshold"`
 	IdleCPUBurstThreshold float64  `yaml:"idle_cpu_burst_threshold"`
+	IdleEC2NetworkGB      float64  `yaml:"idle_ec2_network_gb"`
 	StoppedThresholdDays  int      `yaml:"stopped_threshold_days"`
 	NATGWLowTrafficGB     float64  `yaml:"nat_gw_low_traffic_gb"`
 	ECRUntaggedThreshold  int      `yaml:"ecr_untagged_threshold"`

@@ -57,7 +57,7 @@ func newEC2MockMetricsFetcher(cpuValues, memValues map[string]float64) *MetricsF
 }
 
 func newEC2MockMetricsFetcherWithGPU(cpuValues, memValues, gpuValues map[string]float64) *MetricsFetcher {
-	return newEC2MockMetricsFetcherWithBurst(cpuValues, memValues, gpuValues, nil)
+	return newEC2MockMetricsFetcherWithBurst(cpuValues, memValues, gpuValues, nil, nil, nil)
 }
 
 // newEC2MockMetricsFetcherWithBurst is the full-featured EC2 metrics mock:
@@ -66,7 +66,7 @@ func newEC2MockMetricsFetcherWithGPU(cpuValues, memValues, gpuValues map[string]
 // Stat=="Maximum". Existing constructors pass nil dailyMax, so a Maximum query
 // returns no results and burst detection is inert — preserving the ~30
 // average-only tests' behavior unchanged.
-func newEC2MockMetricsFetcherWithBurst(cpuValues, memValues, gpuValues map[string]float64, dailyMaxValues map[string][]float64) *MetricsFetcher {
+func newEC2MockMetricsFetcherWithBurst(cpuValues, memValues, gpuValues map[string]float64, dailyMaxValues map[string][]float64, netInValues, netOutValues map[string]float64) *MetricsFetcher {
 	return NewMetricsFetcher(&mockCloudWatchClient{
 		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
 			var results []cwtypes.MetricDataResult
@@ -80,8 +80,6 @@ func newEC2MockMetricsFetcherWithBurst(cpuValues, memValues, gpuValues map[strin
 				stat := derefStat(q.MetricStat.Stat)
 
 				// WO-247: the per-day Maximum series is a distinct query shape
-				// (Stat=="Maximum") even though it targets the same
-				// AWS/EC2/CPUUtilization metric as the Average fetch.
 				if stat == "Maximum" {
 					if series, ok := dailyMaxValues[instID]; ok {
 						results = append(results, cwtypes.MetricDataResult{
@@ -94,7 +92,11 @@ func newEC2MockMetricsFetcherWithBurst(cpuValues, memValues, gpuValues map[strin
 
 				var values map[string]float64
 				switch {
-				case namespace == "AWS/EC2":
+				case namespace == "AWS/EC2" && metricName == "NetworkIn":
+					values = netInValues
+				case namespace == "AWS/EC2" && metricName == "NetworkOut":
+					values = netOutValues
+				case namespace == "AWS/EC2" && metricName == "CPUUtilization":
 					values = cpuValues
 				case namespace == "CWAgent" && metricName == "mem_used_percent":
 					values = memValues
@@ -218,11 +220,6 @@ func TestEC2Scanner_IdleInstance_LongRunning_FullWindowMessage(t *testing.T) {
 }
 
 func TestEC2Scanner_IdleInstance_RecentlyStarted_InsufficientHistoryMessage(t *testing.T) {
-	// WO-236: a live dogfood scan found a GitLab CI runner instance started
-	// 11 minutes before the scan ran, with only 1 CloudWatch datapoint in the
-	// 7-day window, reported as "CPU 1.7% over 7 days" — an overclaim of data
-	// coverage. The finding must still surface (real evidence, not suppressed)
-	// but must not claim full-window confidence it doesn't have.
 	launchTime := time.Now().UTC().Add(-11 * time.Minute)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
@@ -383,10 +380,6 @@ func TestEC2Scanner_IdleInstance_NodeGroupManaged_KubernetesClusterOwnedTag(t *t
 }
 
 func TestEC2Scanner_IdleInstance_KubernetesClusterTagNotOwned_NotNodeGroupManaged(t *testing.T) {
-	// A "kubernetes.io/cluster/<name>" tag with a value other than "owned"
-	// (e.g. "shared") means the cluster merely references the resource, not
-	// that it owns/manages its lifecycle — must not be treated as node-group
-	// managed.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -498,7 +491,6 @@ func TestEC2Scanner_StoppedInstance(t *testing.T) {
 	if f.Severity != SeverityMedium {
 		t.Fatalf("expected medium severity for stopped instance, got %s", f.Severity)
 	}
-	// 100 GiB gp3 ($8) + 500 GiB gp3 ($40) = $48/month
 	if f.EstimatedMonthlyWaste == 0 {
 		t.Fatal("expected non-zero EBS waste for stopped instance with volumes")
 	}
@@ -731,9 +723,6 @@ func TestEC2Scanner_LowCPULowMemory_StillIdle(t *testing.T) {
 }
 
 func TestEC2Scanner_GPUInstance_LowCPUHighGPU_NotIdle(t *testing.T) {
-	// WO-235: a GPU-bound workload commonly runs with low host CPU while the
-	// GPU itself is saturated — CPU-only detection would falsely flag this
-	// (expensive) instance as idle.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -806,9 +795,6 @@ func TestEC2Scanner_GPUInstance_LowCPULowGPU_StillIdle(t *testing.T) {
 }
 
 func TestEC2Scanner_NodeGroupManaged_GPUOverride_NotIdle(t *testing.T) {
-	// A node-group-managed GPU instance that is actually saturated on the GPU
-	// must still be skipped entirely by the GPU override — the node-group
-	// check must not resurrect a finding the GPU override already ruled out.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -843,8 +829,6 @@ func TestEC2Scanner_NodeGroupManaged_GPUOverride_NotIdle(t *testing.T) {
 }
 
 func TestEC2Scanner_NodeGroupManaged_LowGPU_StillIdle_Annotated(t *testing.T) {
-	// A genuinely idle node-group-managed GPU instance must get both the
-	// existing GPU metadata AND the node-group annotation together.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -893,8 +877,6 @@ func TestEC2Scanner_NodeGroupManaged_LowGPU_StillIdle_Annotated(t *testing.T) {
 }
 
 func TestEC2Scanner_NodeGroupManaged_MemoryOverride_NotIdle(t *testing.T) {
-	// A node-group-managed instance with high memory utilization must still
-	// be skipped entirely by the memory override.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -928,9 +910,6 @@ func TestEC2Scanner_NodeGroupManaged_MemoryOverride_NotIdle(t *testing.T) {
 }
 
 func TestEC2Scanner_StoppedInstance_NodeGroupTags_ScopeContained(t *testing.T) {
-	// WO-239 is scoped to IDLE_EC2 only — a stopped instance with node-group
-	// tags must produce an ordinary STOPPED_EC2 finding, untouched by the
-	// node-group annotation/RemediationPath logic.
 	launchTime := time.Now().UTC().Add(-45 * 24 * time.Hour)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
@@ -974,8 +953,6 @@ func TestEC2Scanner_StoppedInstance_NodeGroupTags_ScopeContained(t *testing.T) {
 }
 
 func TestEC2Scanner_GPUInstance_NoGPUMetrics_FallsBackToCPU(t *testing.T) {
-	// No CloudWatch agent GPU plugin installed — no GPU metric data at all.
-	// Must fall back to CPU-only detection rather than blocking the finding.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -993,7 +970,7 @@ func TestEC2Scanner_GPUInstance_NoGPUMetrics_FallsBackToCPU(t *testing.T) {
 	metrics := newEC2MockMetricsFetcherWithGPU(
 		map[string]float64{"i-gpunometrics001": 1.0},
 		nil,
-		nil, // no GPU data available for this instance
+		nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1007,8 +984,6 @@ func TestEC2Scanner_GPUInstance_NoGPUMetrics_FallsBackToCPU(t *testing.T) {
 }
 
 func TestEC2Scanner_NonGPUInstance_HighGPUMetricIgnored(t *testing.T) {
-	// A non-GPU instance type must never consult the GPU override, even if
-	// (implausibly) GPU-namespaced data happens to exist for its ID.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -1043,8 +1018,6 @@ func TestEC2Scanner_NonGPUInstance_HighGPUMetricIgnored(t *testing.T) {
 }
 
 func TestEC2Scanner_GPUInstance_LowGPUHighMemory_NotIdle(t *testing.T) {
-	// A GPU instance can fall through the GPU check (low GPU utilization) and
-	// still be caught by the independent memory override.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{
@@ -1149,8 +1122,6 @@ func TestDetectCPUBurst(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_DownrankedAndAnnotated(t *testing.T) {
-	// Low average CPU (2%) but a recurring daily max spike (45%/47% on 2 of 7
-	// days) — periodic/scheduled activity, not continuous idleness (WO-247).
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1161,9 +1132,10 @@ func TestEC2Scanner_BurstCPUSpike_DownrankedAndAnnotated(t *testing.T) {
 		},
 	}
 	metrics := newEC2MockMetricsFetcherWithBurst(
-		map[string]float64{"i-cron001": 2.0}, // low average CPU
+		map[string]float64{"i-cron001": 2.0},
 		nil, nil,
-		map[string][]float64{"i-cron001": {2, 45, 3, 3, 47, 2, 4}}, // 2 spike days
+		map[string][]float64{"i-cron001": {2, 45, 3, 3, 47, 2, 4}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1193,8 +1165,6 @@ func TestEC2Scanner_BurstCPUSpike_DownrankedAndAnnotated(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_SingleDayNotBurst(t *testing.T) {
-	// A single spike day (one-off: deploy, boot, patch) must NOT be treated as
-	// recurring — minBurstDays=2. Stays high/direct, no burst annotation.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1206,7 +1176,8 @@ func TestEC2Scanner_BurstCPUSpike_SingleDayNotBurst(t *testing.T) {
 	}
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-oneshot001": 2.0}, nil, nil,
-		map[string][]float64{"i-oneshot001": {2, 45, 3, 3, 2, 2, 4}}, // 1 spike day
+		map[string][]float64{"i-oneshot001": {2, 45, 3, 3, 2, 2, 4}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1233,8 +1204,6 @@ func TestEC2Scanner_BurstCPUSpike_SingleDayNotBurst(t *testing.T) {
 }
 
 func TestEC2Scanner_FlatLowCPU_NoBurstSignal(t *testing.T) {
-	// Genuinely flat-idle: daily maxima never approach the burst threshold.
-	// The burst signal must be absent and severity unchanged (true positive).
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1246,7 +1215,8 @@ func TestEC2Scanner_FlatLowCPU_NoBurstSignal(t *testing.T) {
 	}
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-flat001": 2.0}, nil, nil,
-		map[string][]float64{"i-flat001": {2, 3, 2, 4, 3, 2, 3}}, // 0 spike days
+		map[string][]float64{"i-flat001": {2, 3, 2, 4, 3, 2, 3}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1270,8 +1240,6 @@ func TestEC2Scanner_FlatLowCPU_NoBurstSignal(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_DefaultThresholdWhenUnset(t *testing.T) {
-	// IdleCPUBurstThreshold unset (0) must fall back to the default (30) and
-	// still detect a 45% spike pattern.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1284,10 +1252,10 @@ func TestEC2Scanner_BurstCPUSpike_DefaultThresholdWhenUnset(t *testing.T) {
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-defaultthreshold": 2.0}, nil, nil,
 		map[string][]float64{"i-defaultthreshold": {2, 45, 3, 45, 2, 2, 3}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
-	// IdleCPUBurstThreshold intentionally left zero → exercises the default.
 	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1304,9 +1272,6 @@ func TestEC2Scanner_BurstCPUSpike_DefaultThresholdWhenUnset(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_NodeGroupCoexists(t *testing.T) {
-	// A node-group-managed instance that ALSO bursts: node-group's
-	// via_controller remediation wins (more specific), severity stays Medium,
-	// but the burst metadata and message annotation are still added.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1322,6 +1287,7 @@ func TestEC2Scanner_BurstCPUSpike_NodeGroupCoexists(t *testing.T) {
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-nodegroup-burst": 2.0}, nil, nil,
 		map[string][]float64{"i-nodegroup-burst": {2, 45, 3, 45, 2, 2, 3}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1351,12 +1317,7 @@ func TestEC2Scanner_BurstCPUSpike_NodeGroupCoexists(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_InsufficientHistory_Suppressed(t *testing.T) {
-	// WO-254: an instance younger than the lookback window has partial-day
-	// CloudWatch buckets that could read as false spike days (boot/deploy
-	// noise), and the X/Y-days denominator would be misleading. Burst
-	// detection is gated on sufficient history and must NOT fire here even
-	// though the daily-max series nominally shows 2 spike days.
-	launchTime := time.Now().UTC().Add(-1 * 24 * time.Hour) // 1 day old, < 7-day window
+	launchTime := time.Now().UTC().Add(-1 * 24 * time.Hour)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1369,7 +1330,8 @@ func TestEC2Scanner_BurstCPUSpike_InsufficientHistory_Suppressed(t *testing.T) {
 	}
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-young-burst": 2.0}, nil, nil,
-		map[string][]float64{"i-young-burst": {45, 45}}, // nominally 2 spike days
+		map[string][]float64{"i-young-burst": {45, 45}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1399,11 +1361,7 @@ func TestEC2Scanner_BurstCPUSpike_InsufficientHistory_Suppressed(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_SufficientHistory_Fires(t *testing.T) {
-	// WO-254 regression guard: the same daily-max spike pattern that is
-	// suppressed for an insufficient-history instance MUST fire for an
-	// instance with sufficient history (running longer than the window) —
-	// the gate suppresses young instances, not the burst signal itself.
-	launchTime := time.Now().UTC().Add(-30 * 24 * time.Hour) // 30 days old, > 7-day window
+	launchTime := time.Now().UTC().Add(-30 * 24 * time.Hour)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1417,6 +1375,7 @@ func TestEC2Scanner_BurstCPUSpike_SufficientHistory_Fires(t *testing.T) {
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-old-burst": 2.0}, nil, nil,
 		map[string][]float64{"i-old-burst": {2, 45, 3, 3, 47, 2, 4}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1440,13 +1399,6 @@ func TestEC2Scanner_BurstCPUSpike_SufficientHistory_Fires(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_GPUOverrideStillSkips(t *testing.T) {
-	// A GPU instance that is GPU-saturated must still be skipped entirely by
-	// the GPU override — burst detection must not resurrect a finding the GPU
-	// override already ruled out, even with a strong daily spike pattern.
-	// F3: the detectCPUBurstCalls counter pins the ORDERING — the GPU override
-	// must `continue` before burst detection is ever reached, so the counter
-	// stays 0. Without this, the test would pass even if burst ran first and
-	// its mutations were silently discarded by the later continue.
 	detectCPUBurstCalls.Store(0)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
@@ -1459,8 +1411,9 @@ func TestEC2Scanner_BurstCPUSpike_GPUOverrideStillSkips(t *testing.T) {
 	}
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-gpu-burst": 2.0}, nil,
-		map[string]float64{"i-gpu-burst": 95.0}, // high GPU → override skips
+		map[string]float64{"i-gpu-burst": 95.0},
 		map[string][]float64{"i-gpu-burst": {2, 80, 3, 80, 2, 2, 3}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1477,9 +1430,6 @@ func TestEC2Scanner_BurstCPUSpike_GPUOverrideStillSkips(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstCPUSpike_MemoryOverrideStillSkips(t *testing.T) {
-	// G2: an instance with high memory utilization must be skipped by the
-	// memory override before burst detection is reached — symmetric to the
-	// GPU override case above.
 	detectCPUBurstCalls.Store(0)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
@@ -1492,9 +1442,10 @@ func TestEC2Scanner_BurstCPUSpike_MemoryOverrideStillSkips(t *testing.T) {
 	}
 	metrics := newEC2MockMetricsFetcherWithBurst(
 		map[string]float64{"i-membusy-burst": 2.0},
-		map[string]float64{"i-membusy-burst": 85.0}, // high memory → override skips
+		map[string]float64{"i-membusy-burst": 85.0},
 		nil,
 		map[string][]float64{"i-membusy-burst": {2, 80, 3, 80, 2, 2, 3}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1511,11 +1462,6 @@ func TestEC2Scanner_BurstCPUSpike_MemoryOverrideStillSkips(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstData_NotIdleAverage_NoFinding(t *testing.T) {
-	// G3: burst lives inside the avgCPU < IdleCPUThreshold guard. An instance
-	// whose AVERAGE CPU is above the idle threshold is not flagged IDLE_EC2 at
-	// all, so burst detection is never evaluated regardless of the daily-max
-	// series. Guards against a future refactor that moves burst outside the
-	// idle guard.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1526,9 +1472,10 @@ func TestEC2Scanner_BurstData_NotIdleAverage_NoFinding(t *testing.T) {
 		},
 	}
 	metrics := newEC2MockMetricsFetcherWithBurst(
-		map[string]float64{"i-busy-avg": 40.0}, // average well above idle threshold
+		map[string]float64{"i-busy-avg": 40.0},
 		nil, nil,
 		map[string][]float64{"i-busy-avg": {40, 80, 40, 80, 40, 40, 40}},
+		nil, nil,
 	)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
 
@@ -1542,8 +1489,6 @@ func TestEC2Scanner_BurstData_NotIdleAverage_NoFinding(t *testing.T) {
 }
 
 func TestEC2Scanner_BurstDailyMaxFetchError_FindingStillSurfaces(t *testing.T) {
-	// G1: if the per-day Maximum fetch fails, the finding must still surface
-	// WITHOUT a burst annotation — burst detection is optional, never blocking.
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
 			{Instances: []ec2types.Instance{{
@@ -1553,8 +1498,6 @@ func TestEC2Scanner_BurstDailyMaxFetchError_FindingStillSurfaces(t *testing.T) {
 			}}},
 		},
 	}
-	// Custom mock: Average CPU returns normally, but a Maximum-stat query
-	// returns an error (simulating transient throttling of the burst fetch).
 	metrics := NewMetricsFetcher(&mockCloudWatchClient{
 		getMetricDataFn: func(_ context.Context, input *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
 			for _, q := range input.MetricDataQueries {
@@ -1590,6 +1533,111 @@ func TestEC2Scanner_BurstDailyMaxFetchError_FindingStillSurfaces(t *testing.T) {
 	}
 	if f.Metadata["burst_cpu_days"] != nil {
 		t.Fatalf("expected no burst metadata on fetch failure, got %v", f.Metadata["burst_cpu_days"])
+	}
+}
+
+func TestEC2Scanner_NetworkActivityHigh_NotIdle(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-netbusy"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-netbusy": 2.0}, nil, nil, nil,
+		map[string]float64{"i-netbusy": 5 * 1024 * 1024 * 1024},
+		map[string]float64{"i-netbusy": 5 * 1024 * 1024 * 1024},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleEC2NetworkGB: 1.0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings (network override skips), got %d", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_NetworkActivityLow_StillFlagged(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-netquiet"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-netquiet": 2.0}, nil, nil, nil,
+		map[string]float64{"i-netquiet": 100 * 1024},
+		map[string]float64{"i-netquiet": 200 * 1024},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleEC2NetworkGB: 1.0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding (network below threshold, still flagged), got %d", len(result.Findings))
+	}
+	if result.Findings[0].ID != FindingIdleEC2 {
+		t.Fatalf("expected IDLE_EC2, got %s", result.Findings[0].ID)
+	}
+}
+
+func TestEC2Scanner_NetworkActivityNoData_StillFlagged(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-nonet"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-nonet": 2.0}, nil, nil, nil, nil, nil,
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30, IdleEC2NetworkGB: 1.0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding (no network data, falls back to CPU-only), got %d", len(result.Findings))
+	}
+}
+
+func TestEC2Scanner_NetworkActivityDefaultThreshold(t *testing.T) {
+	mock := &mockEC2Client{
+		instances: []ec2types.Reservation{
+			{Instances: []ec2types.Instance{{
+				InstanceId:   awssdk.String("i-netdefault"),
+				InstanceType: ec2types.InstanceTypeT3Large,
+				State:        &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+			}}},
+		},
+	}
+	metrics := newEC2MockMetricsFetcherWithBurst(
+		map[string]float64{"i-netdefault": 2.0}, nil, nil, nil,
+		map[string]float64{"i-netdefault": 2 * 1024 * 1024 * 1024},
+		map[string]float64{"i-netdefault": 0},
+	)
+	scanner := NewEC2Scanner(mock, metrics, "us-east-1")
+
+	result, err := scanner.Scan(context.Background(), ScanConfig{IdleDays: 7, IdleCPUThreshold: 5.0, HighMemoryThreshold: 50.0, StoppedThresholdDays: 30})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected no findings (2 GiB > default 1.0 GB threshold), got %d", len(result.Findings))
 	}
 }
 
@@ -1629,11 +1677,6 @@ func TestEC2Scanner_LowCPU_NoCWAgent_FallbackIdle(t *testing.T) {
 }
 
 func TestEC2Scanner_StoppedInstance_UsesCloudTrailStopTime_BelowThreshold(t *testing.T) {
-	// WO-243: a live dogfood account showed a LaunchTime 60 days in the past,
-	// but the real CloudTrail StopInstances event was only 19 days before the
-	// scan — below the 30-day StoppedThresholdDays default. Using LaunchTime
-	// alone wrongly fires the finding; the CloudTrail event correctly
-	// suppresses it.
 	launchTime := time.Now().UTC().Add(-60 * 24 * time.Hour)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
@@ -1666,11 +1709,6 @@ func TestEC2Scanner_StoppedInstance_UsesCloudTrailStopTime_BelowThreshold(t *tes
 }
 
 func TestEC2Scanner_StoppedInstance_AboveThreshold_UsesCloudTrailDayCount(t *testing.T) {
-	// A LaunchTime ~100 days ago with a real CloudTrail StopInstances event
-	// ~40 days before the scan — still above the 30-day threshold either way,
-	// so the finding fires in both cases, but the reported days_stopped must
-	// reflect the CloudTrail-derived value (40), not the LaunchTime-derived
-	// one (100).
 	launchTime := time.Now().UTC().Add(-100 * 24 * time.Hour)
 	mock := &mockEC2Client{
 		instances: []ec2types.Reservation{
@@ -1721,7 +1759,7 @@ func TestEC2Scanner_StoppedInstance_CloudTrailNoMatch_FallsBackToLaunchTime(t *t
 			},
 		},
 	}
-	ct := &mockCloudTrailClient{events: nil} // no matching event found
+	ct := &mockCloudTrailClient{events: nil}
 
 	metrics := newEC2MockMetricsFetcher(nil, nil)
 	scanner := NewEC2Scanner(mock, metrics, "us-east-1")

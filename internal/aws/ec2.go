@@ -14,6 +14,15 @@ import (
 	"github.com/ppiankov/awsspectre/internal/pricing"
 )
 
+// defaultIdleEC2NetworkGB is the total NetworkIn+NetworkOut bytes (in GB)
+// over the lookback window below which a low-CPU instance is treated as idle
+// when ScanConfig.IdleEC2NetworkGB is unset — WO-240. A truly idle instance
+// has only ARP/DHCP noise (kilobytes); 1 GB/week catches real network-bound
+// workloads (the live case had ~22 GB/week) while excluding noise.
+const defaultIdleEC2NetworkGB = 1.0
+
+const bytesPerGiB = 1024 * 1024 * 1024
+
 // defaultIdleCPUBurstThreshold is the daily-max CPU % that counts as a spike
 // day for WO-247 burst detection when ScanConfig.IdleCPUBurstThreshold is unset
 // (zero) — the defensive fallback for direct ScanConfig construction; the CLI
@@ -242,6 +251,29 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 				dailyMaxMap = make(map[string][]float64)
 			}
 
+			// Fetch total network throughput for network-activity override
+			// (WO-240): a low-CPU instance that is moving real traffic is
+			// genuinely busy (network-bound workload), not idle — same class
+			// of blind spot the GPU and memory overrides already address for
+			// their respective signals. One extra batched GetMetricData call
+			// per metric (NetworkIn, NetworkOut), same as the existing
+			// CPU/mem/GPU fetches. Optional — on failure the override is
+			// skipped, falling back to CPU-only.
+			networkGB := cfg.IdleEC2NetworkGB
+			if networkGB <= 0 {
+				networkGB = defaultIdleEC2NetworkGB
+			}
+			netInMap, netInErr := s.metrics.FetchSum(ctx, "AWS/EC2", "NetworkIn", "InstanceId", runningIDs, cfg.IdleDays)
+			if netInErr != nil {
+				slog.Warn("Failed to fetch EC2 NetworkIn metrics", "region", s.region, "error", netInErr)
+				netInMap = make(map[string]float64)
+			}
+			netOutMap, netOutErr := s.metrics.FetchSum(ctx, "AWS/EC2", "NetworkOut", "InstanceId", runningIDs, cfg.IdleDays)
+			if netOutErr != nil {
+				slog.Warn("Failed to fetch EC2 NetworkOut metrics", "region", s.region, "error", netOutErr)
+				netOutMap = make(map[string]float64)
+			}
+
 			instanceMap := buildInstanceMap(instances)
 			for _, id := range runningIDs {
 				avgCPU, ok := cpuMap[id]
@@ -271,6 +303,19 @@ func (s *EC2Scanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, err
 					if hasMem && avgMem >= cfg.HighMemoryThreshold {
 						slog.Debug("Instance has low CPU but high memory — not idle",
 							"instance", id, "cpu", avgCPU, "memory", avgMem)
+						continue
+					}
+
+					// WO-240: a low-CPU instance that is moving real network
+					// traffic is genuinely busy (network-bound workload), not
+					// idle. NetworkIn+NetworkOut are Sum metrics over the
+					// lookback window (bytes). Convert to GiB for comparison
+					// against the threshold.
+					netBytes := netInMap[id] + netOutMap[id]
+					netGB := netBytes / bytesPerGiB
+					if netGB >= networkGB {
+						slog.Debug("Instance has low CPU but substantial network throughput — not idle",
+							"instance", id, "cpu", avgCPU, "network_gb", netGB)
 						continue
 					}
 

@@ -25,6 +25,7 @@ var scanFlags struct {
 	idleCPUThreshold      float64
 	highMemoryThreshold   float64
 	idleCPUBurstThreshold float64
+	idleEC2NetworkGB      float64
 	stoppedThresholdDays  int
 	natGWLowTrafficGB     float64
 	ecrUntaggedThreshold  int
@@ -52,6 +53,7 @@ func init() {
 	scanCmd.Flags().Float64Var(&scanFlags.idleCPUThreshold, "idle-cpu-threshold", 0, "CPU % below which a resource is idle (default: 5)")
 	scanCmd.Flags().Float64Var(&scanFlags.highMemoryThreshold, "high-memory-threshold", 0, "Memory % above which a resource is not idle (default: 50)")
 	scanCmd.Flags().Float64Var(&scanFlags.idleCPUBurstThreshold, "idle-cpu-burst-threshold", 0, "Daily CPU max % that counts as a spike day for periodic/burst-workload detection (default: 30)")
+	scanCmd.Flags().Float64Var(&scanFlags.idleEC2NetworkGB, "idle-ec2-network-gb", 0, "Total NetworkIn+NetworkOut GB below which a low-CPU EC2 instance is idle (default: 1)")
 	scanCmd.Flags().IntVar(&scanFlags.stoppedThresholdDays, "stopped-threshold-days", 0, "Days stopped before flagging EC2 (default: 30)")
 	scanCmd.Flags().Float64Var(&scanFlags.natGWLowTrafficGB, "nat-gw-low-traffic-gb", 0, "NAT Gateway monthly GB below which to flag as low traffic (default: 1)")
 	scanCmd.Flags().IntVar(&scanFlags.ecrUntaggedThreshold, "ecr-untagged-threshold", 0, "Number of untagged images in an ECR repository before flagging as waste (default: 20)")
@@ -106,6 +108,10 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	if scanFlags.idleCPUBurstThreshold > 0 {
 		burstThresh = scanFlags.idleCPUBurstThreshold
 	}
+	networkGB := 1.0
+	if scanFlags.idleEC2NetworkGB > 0 {
+		networkGB = scanFlags.idleEC2NetworkGB
+	}
 	stoppedDays := 30
 	if scanFlags.stoppedThresholdDays > 0 {
 		stoppedDays = scanFlags.stoppedThresholdDays
@@ -143,6 +149,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		IdleCPUThreshold:      cpuThresh,
 		HighMemoryThreshold:   memThresh,
 		IdleCPUBurstThreshold: burstThresh,
+		IdleEC2NetworkGB:      networkGB,
 		StoppedThresholdDays:  stoppedDays,
 		NATGWLowTrafficGB:     natGWTraffic,
 		ECRUntaggedThreshold:  ecrUntaggedThreshold,
