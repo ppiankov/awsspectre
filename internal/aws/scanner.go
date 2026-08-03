@@ -266,6 +266,7 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 		NewSNSScanner(snsClient, metrics, region),
 		NewLogsScanner(logsClient, region),
 		NewECRScanner(ecrClient, region),
+		NewENIScanner(ec2Client, region),
 	}
 }
 

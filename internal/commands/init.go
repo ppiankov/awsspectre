@@ -117,6 +117,7 @@ timeout: 10m
 // WO-232: also covers Auto Scaling Group / launch template inspection for
 // ASG-referenced security group detection.
 // WO-225: also covers ECR repository/image inventory.
+// WO-223: also covers ENI availability/inventory.
 const sampleIAMPolicy = `{
   "Version": "2012-10-17",
   "Statement": [

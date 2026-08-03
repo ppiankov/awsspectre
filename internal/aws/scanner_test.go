@@ -21,11 +21,11 @@ func TestNewMultiRegionScanner_CustomConcurrency(t *testing.T) {
 	}
 }
 
-func TestBuildScanners_Returns15Scanners(t *testing.T) {
+func TestBuildScanners_Returns16Scanners(t *testing.T) {
 	cfg := awssdk.Config{Region: "us-east-1"}
 	scanners := buildScanners(cfg, "us-east-1")
-	if len(scanners) != 15 {
-		t.Fatalf("expected 15 scanners, got %d", len(scanners))
+	if len(scanners) != 16 {
+		t.Fatalf("expected 16 scanners, got %d", len(scanners))
 	}
 
 	types := make(map[ResourceType]bool)
@@ -38,6 +38,7 @@ func TestBuildScanners_Returns15Scanners(t *testing.T) {
 		ResourceALB, ResourceNATGateway, ResourceRDS, ResourceLambda,
 		ResourceKinesis, ResourceFirehose, ResourceSQS, ResourceSNS, ResourceLogGroup,
 		ResourceECR,
+		ResourceENI,
 	}
 	for _, rt := range expected {
 		if !types[rt] {

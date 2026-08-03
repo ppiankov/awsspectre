@@ -157,6 +157,7 @@ awsspectre/
 │   │   ├── sqs.go                 # SQS: idle queues, no-consumer, orphaned DLQs
 │   │   ├── sns.go                 # SNS: no subscribers, idle topics
 │   │   ├── logs.go                # CloudWatch Logs: no retention policy
+│   │   ├── eni.go                 # ENI: unattached interfaces
 │   │   └── ecr.go                 # ECR: no lifecycle policy, untagged-image sprawl
 │   ├── pricing/                   # Embedded on-demand pricing (go:embed)
 │   ├── analyzer/                  # Filter by min cost, compute summary
@@ -183,7 +184,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| Resource scanners for EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, ECR, snapshots, and security groups | Complete |
+| Resource scanners for ENI, EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, ECR, ENIs, snapshots, and security groups | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |
