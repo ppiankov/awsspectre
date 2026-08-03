@@ -1,7 +1,6 @@
 # awsspectre
 
 [![CI](https://github.com/ppiankov/awsspectre/actions/workflows/ci.yml/badge.svg)](https://github.com/ppiankov/awsspectre/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/awsspectre)](https://goreportcard.com/report/github.com/ppiankov/awsspectre)
 [![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
 
 **awsspectre** — AWS resource waste auditor with cost estimates. Part of [SpectreHub](https://spectrehub.dev).
