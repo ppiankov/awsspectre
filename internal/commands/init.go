@@ -144,6 +144,7 @@ const sampleIAMPolicy = `{
         "rds:DescribeDBSnapshots",
         "lambda:ListFunctions",
         "lambda:ListTags",
+        "lambda:ListEventSourceMappings",
         "kinesis:ListStreams",
         "kinesis:DescribeStreamSummary",
         "kinesis:ListTagsForStream",

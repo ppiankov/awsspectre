@@ -134,3 +134,27 @@ func TestSampleIAMPolicyIncludesECRScanPermissions(t *testing.T) {
 		}
 	}
 }
+
+func TestSampleIAMPolicyIncludesLambdaEventSourcePermissions(t *testing.T) {
+	var policy samplePolicyDocument
+	if err := json.Unmarshal([]byte(sampleIAMPolicy), &policy); err != nil {
+		t.Fatalf("unmarshal sample IAM policy: %v", err)
+	}
+
+	actions := make(map[string]bool, len(policy.Statement[0].Action))
+	for _, action := range policy.Statement[0].Action {
+		actions[action] = true
+	}
+
+	// WO-246: the Lambda scanner calls ListEventSourceMappings to check
+	// whether a function with zero invocations has a live event source
+	// (SQS/DynamoDB/Kinesis) — a rare-but-wired trigger, not orphaned.
+	required := []string{
+		"lambda:ListEventSourceMappings",
+	}
+	for _, action := range required {
+		if !actions[action] {
+			t.Errorf("expected sample IAM policy to include %s", action)
+		}
+	}
+}

@@ -94,7 +94,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `autoscaling:DescribeAutoScalingGroups`, `autoscaling:DescribeLaunchConfigurations`
 - `elasticloadbalancing:DescribeLoadBalancers`, `elasticloadbalancing:DescribeTargetGroups`, `elasticloadbalancing:DescribeTargetHealth`, `elasticloadbalancing:DescribeTags`
 - `rds:DescribeDBInstances`
-- `lambda:ListFunctions`, `lambda:ListTags`
+- `lambda:ListFunctions`, `lambda:ListTags`, `lambda:ListEventSourceMappings`
 - `kinesis:ListStreams`, `kinesis:DescribeStreamSummary`, `kinesis:ListTagsForStream`
 - `firehose:ListDeliveryStreams`, `firehose:ListTagsForDeliveryStream`, `firehose:DescribeDeliveryStream`
 - `sqs:ListQueues`, `sqs:GetQueueAttributes`, `sqs:ListQueueTags`
@@ -152,7 +152,7 @@ awsspectre/
 │   │   ├── rds.go                 # RDS: idle CPU, no connections
 │   │   ├── snapshot.go            # Snapshots: old, no AMI reference
 │   │   ├── secgroup.go            # Security groups: no attached ENIs or ASG/launch-template references
-│   │   ├── lambda.go              # Lambda: zero invocations
+│   │   ├── lambda.go              # Lambda: zero invocations, rare-trigger awareness
 │   │   ├── kinesis.go             # Kinesis: idle streams, over-provisioned shards, idle Firehose
 │   │   ├── sqs.go                 # SQS: idle queues, no-consumer, orphaned DLQs
 │   │   ├── sns.go                 # SNS: no subscribers, idle topics
