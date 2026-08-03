@@ -152,6 +152,7 @@ type ScanConfig struct {
 	NATGWLowTrafficGB     float64
 	ECRUntaggedThreshold  int
 	IdleCPUBurstThreshold float64
+	IdleEC2NetworkGB      float64
 	Exclude               ExcludeConfig
 }
 

@@ -98,6 +98,7 @@ timeout: 10m
 # idle_cpu_threshold: 5.0
 # high_memory_threshold: 50.0
 # idle_cpu_burst_threshold: 30.0
+# idle_ec2_network_gb: 1.0
 # stopped_threshold_days: 30
 # nat_gw_low_traffic_gb: 1.0
 # ecr_untagged_threshold: 20

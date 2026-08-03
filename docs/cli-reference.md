@@ -41,6 +41,7 @@ awsspectre scan [flags]
 | `--min-monthly-cost` | `1.0` | Minimum monthly cost to report ($) |
 | `--idle-cpu-threshold` | `5.0` | CPU % below which a resource is idle |
 | `--idle-cpu-burst-threshold` | `30.0` | Daily CPU max % that counts as a spike day for periodic/burst-workload detection |
+| `--idle-ec2-network-gb` | `1.0` | Total NetworkIn+NetworkOut GB below which a low-CPU EC2 instance is treated as idle |
 | `--high-memory-threshold` | `50.0` | Memory (or, for GPU instances, GPU utilization) % above which a resource is not idle |
 | `--stopped-threshold-days` | `30` | Days stopped before flagging EC2 |
 | `--nat-gw-low-traffic-gb` | `1.0` | NAT Gateway monthly GB below which to flag as low traffic |
@@ -143,7 +144,7 @@ awsspectre/
 │   │   ├── idlewindow.go          # Shared idle-window confidence helper (data-coverage honesty)
 │   │   ├── scanner.go             # MultiRegionScanner orchestrator
 │   │   ├── cloudfront.go          # CloudFront: disabled distributions, zero requests
-│   │   ├── ec2.go                 # EC2: idle CPU, stopped instances, EKS/ASG node-group awareness, burst-CPU signal
+│   │   ├── ec2.go                 # EC2: idle CPU, stopped instances, EKS/ASG node-group awareness, burst-CPU signal, network-activity override
 │   │   ├── ebs.go                 # EBS: detached volumes, gp2->gp3 migration candidates
 │   │   ├── eip.go                 # EIP: unassociated addresses
 │   │   ├── elb.go                 # ALB/NLB: zero targets, zero requests
