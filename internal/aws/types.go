@@ -57,6 +57,7 @@ const (
 	ResourceCloudFront    ResourceType = "cloudfront"     // WO-189: global CloudFront hygiene scanner.
 	ResourceLogGroup      ResourceType = "log_group"      // WO-221: CloudWatch Logs retention scanner.
 	ResourceECR           ResourceType = "ecr_repository" // WO-225: ECR repository storage/untagged-image scanner.
+	ResourceENI           ResourceType = "eni"            // WO-223: unattached ENI hygiene scanner.
 )
 
 // FindingID identifies the type of waste detected.
@@ -89,6 +90,7 @@ const (
 	FindingGP2MigrationCandidate  FindingID = "GP2_MIGRATION_CANDIDATE"   // WO-222: gp2 volume with a same-behavior gp3 cost win.
 	FindingECRNoLifecyclePolicy   FindingID = "ECR_NO_LIFECYCLE_POLICY"   // WO-225: unbounded image retention risk.
 	FindingECRUntaggedImageSprawl FindingID = "ECR_UNTAGGED_IMAGE_SPRAWL" // WO-225: untagged images accumulating storage cost.
+	FindingUnattachedENI          FindingID = "UNATTACHED_ENI"            // WO-223: unattached ENI hygiene signal.
 )
 
 // Finding represents a single waste detection result.
