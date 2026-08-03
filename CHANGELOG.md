@@ -5,6 +5,12 @@ All notable changes to AWSSpectre will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-08-03
+
+### Added
+
+- `IDLE_LAMBDA` now recognizes legitimately rare invocation triggers: a Lambda function with zero invocations that has a CloudFormation custom resource tag (`aws:cloudformation:logical-id`) or a live event source (SQS, DynamoDB, Kinesis stream) is down-ranked to `remediation_path=needs_review` and its message notes the rare-but-wired trigger pattern, rather than being presented as genuinely orphaned. Adds 1 new IAM permission (`lambda:ListEventSourceMappings`).
+
 ## [0.14.0] - 2026-08-03
 
 ### Added
@@ -248,6 +254,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew formula via GoReleaser brews section
 - CI/CD: GitHub Actions for build, test, lint, and release
 
+[0.15.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.15.0
 [0.14.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.14.0
 [0.13.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.13.0
 [0.12.0]: https://github.com/ppiankov/awsspectre/releases/tag/v0.12.0
