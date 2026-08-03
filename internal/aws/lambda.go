@@ -12,6 +12,7 @@ import (
 type LambdaAPI interface {
 	ListFunctions(ctx context.Context, input *lambda.ListFunctionsInput, opts ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error)
 	ListTags(ctx context.Context, input *lambda.ListTagsInput, opts ...func(*lambda.Options)) (*lambda.ListTagsOutput, error)
+	ListEventSourceMappings(ctx context.Context, input *lambda.ListEventSourceMappingsInput, opts ...func(*lambda.Options)) (*lambda.ListEventSourceMappingsOutput, error)
 }
 
 // LambdaScanner detects Lambda functions with zero invocations.
@@ -88,16 +89,48 @@ func (s *LambdaScanner) Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, 
 			meta["timeout_sec"] = *fn.Timeout
 		}
 
+		severity := SeverityLow
+		remediationPath := RemediationDirect
+		msg := fmt.Sprintf("Zero invocations over %d days", cfg.IdleDays)
+
+		// WO-246: a Lambda with zero invocations may still have a
+		// legitimate, infrequent trigger — a CFN custom resource
+		// (stack lifecycle events only) or a live event source
+		// (SQS/DynamoDB/Kinesis stream) that fires rarely. Down-rank
+		// and annotate rather than presenting as genuinely orphaned.
+		tags, tagErr := s.fetchTags(ctx, deref(fn.FunctionArn))
+		if tagErr != nil {
+			slog.Warn("Failed to fetch Lambda tags for rare-trigger check", "function", name, "error", tagErr)
+			tags = nil
+		}
+		hasSource, sourceErr := s.hasEventSource(ctx, name)
+		if sourceErr != nil {
+			slog.Warn("Failed to check Lambda event sources", "function", name, "error", sourceErr)
+		}
+
+		if _, isCFN := tags["aws:cloudformation:logical-id"]; isCFN {
+			severity = SeverityMedium
+			remediationPath = RemediationNeedsReview
+			msg = fmt.Sprintf("%s — CloudFormation custom resource (invoked only at stack lifecycle events; review stack before deleting)", msg)
+			meta["cfn_custom_resource"] = true
+		} else if hasSource {
+			severity = SeverityMedium
+			remediationPath = RemediationNeedsReview
+			msg = fmt.Sprintf("%s — has a live event source but zero recent invocations (infrequent-but-wired, not genuinely orphaned; review before deleting)", msg)
+			meta["has_event_source"] = true
+		}
+
 		result.Findings = append(result.Findings, Finding{
 			ID:                    FindingIdleLambda,
-			Severity:              SeverityLow,
+			Severity:              severity,
 			ResourceType:          ResourceLambda,
 			ResourceID:            name,
 			ResourceName:          deref(fn.FunctionArn),
 			Region:                s.region,
-			Message:               fmt.Sprintf("Zero invocations over %d days", cfg.IdleDays),
+			Message:               msg,
 			EstimatedMonthlyWaste: 0,
-			Hygiene:               true, // WO-194: zero-waste Lambda hygiene findings stay visible.
+			Hygiene:               true,
+			RemediationPath:       remediationPath,
 			Metadata:              meta,
 		})
 	}
@@ -116,6 +149,19 @@ func (s *LambdaScanner) fetchTags(ctx context.Context, functionARN string) (map[
 		return nil, err
 	}
 	return out.Tags, nil
+}
+
+// hasEventSource returns true if the function has at least one event source
+// mapping (SQS, DynamoDB, Kinesis, etc.) — a live trigger that fires
+// infrequently, not a genuinely orphaned function. WO-246.
+func (s *LambdaScanner) hasEventSource(ctx context.Context, functionName string) (bool, error) {
+	out, err := s.client.ListEventSourceMappings(ctx, &lambda.ListEventSourceMappingsInput{
+		FunctionName: &functionName,
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(out.EventSourceMappings) > 0, nil
 }
 
 func (s *LambdaScanner) listFunctions(ctx context.Context) ([]lambdatypes.FunctionConfiguration, error) {
