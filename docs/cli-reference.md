@@ -101,6 +101,7 @@ AWSSpectre requires read-only access. Run `awsspectre init` to generate the mini
 - `sns:ListTopics`, `sns:ListSubscriptionsByTopic`, `sns:ListTagsForResource`
 - `logs:DescribeLogGroups`, `logs:ListTagsForResource`
 - `ecr:DescribeRepositories`, `ecr:GetLifecyclePolicy`, `ecr:DescribeImages`
+- `es:ListDomainNames`, `es:DescribeDomain`
 - `cloudfront:ListDistributions`, `cloudfront:ListTagsForResource`
 - `cloudwatch:GetMetricData`
 - `cloudtrail:LookupEvents` (optional)
@@ -157,6 +158,7 @@ awsspectre/
 │   │   ├── sqs.go                 # SQS: idle queues, no-consumer, orphaned DLQs
 │   │   ├── sns.go                 # SNS: no subscribers, idle topics
 │   │   ├── logs.go                # CloudWatch Logs: no retention policy
+│   │   ├── opensearch.go         # OpenSearch: idle domains
 │   │   ├── eni.go                 # ENI: unattached interfaces
 │   │   └── ecr.go                 # ECR: no lifecycle policy, untagged-image sprawl
 │   ├── pricing/                   # Embedded on-demand pricing (go:embed)
@@ -184,7 +186,7 @@ Key design decisions:
 
 | Milestone | Status |
 |-----------|--------|
-| Resource scanners for ENI, EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, ECR, ENIs, snapshots, and security groups | Complete |
+| Resource scanners for ENI, EC2, EBS, EIP, ALB, NLB, NAT GW, RDS, Lambda, Kinesis, Firehose, SQS, SNS, CloudFront, CloudWatch Logs, ECR, ENIs, OpenSearch, snapshots, and security groups | Complete |
 | Multi-region parallel scanning with bounded concurrency | Complete |
 | Embedded on-demand pricing with per-finding cost estimates | Complete |
 | 4 output formats (text, JSON, SARIF, SpectreHub) | Complete |

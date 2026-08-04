@@ -158,3 +158,20 @@ func TestSampleIAMPolicyIncludesLambdaEventSourcePermissions(t *testing.T) {
 		}
 	}
 }
+
+func TestSampleIAMPolicyIncludesOpenSearchPermissions(t *testing.T) {
+	var policy samplePolicyDocument
+	if err := json.Unmarshal([]byte(sampleIAMPolicy), &policy); err != nil {
+		t.Fatalf("unmarshal sample IAM policy: %v", err)
+	}
+	actions := make(map[string]bool, len(policy.Statement[0].Action))
+	for _, action := range policy.Statement[0].Action {
+		actions[action] = true
+	}
+	required := []string{"es:ListDomainNames", "es:DescribeDomain"}
+	for _, action := range required {
+		if !actions[action] {
+			t.Errorf("expected sample IAM policy to include %s", action)
+		}
+	}
+}

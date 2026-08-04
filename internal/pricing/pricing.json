@@ -82,6 +82,9 @@
   "kinesis_shard": {
     "default": {"us-east-1": 0.015, "us-west-2": 0.015, "eu-west-1": 0.018, "ap-southeast-1": 0.018}
   },
+  "opensearch": {
+    "default": {"us-east-1": 0.414, "us-west-2": 0.414, "eu-west-1": 0.455, "ap-southeast-1": 0.490}
+  },
   "cloudwatch_logs": {
     "default": {"us-east-1": 0.03, "us-west-2": 0.03, "eu-west-1": 0.032, "ap-southeast-1": 0.033}
   },

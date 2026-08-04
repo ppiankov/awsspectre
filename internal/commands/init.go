@@ -158,6 +158,8 @@ const sampleIAMPolicy = `{
         "sns:ListTopics",
         "sns:ListSubscriptionsByTopic",
         "sns:ListTagsForResource",
+        "es:ListDomainNames",
+        "es:DescribeDomain",
         "cloudfront:ListDistributions",
         "cloudfront:ListTagsForResource",
         "cloudwatch:GetMetricData",
