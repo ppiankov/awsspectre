@@ -163,6 +163,7 @@ func buildSARIFRules() []sarifRule {
 		// WO-222: gp2 migration candidate finding needs a declared SARIF rule.
 		{ID: string(awstype.FindingGP2MigrationCandidate), ShortDescription: sarifMessage{Text: "gp2 EBS volume is a gp3 migration candidate"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 		// WO-225: ECR findings need declared SARIF rules.
+		{ID: string(awstype.FindingOpenSearchIdle), ShortDescription: sarifMessage{Text: "Idle OpenSearch domain"}, DefaultConfig: sarifDefaultLevel{Level: "error"}},             // WO-226
 		{ID: string(awstype.FindingUnattachedENI), ShortDescription: sarifMessage{Text: "Unattached elastic network interface"}, DefaultConfig: sarifDefaultLevel{Level: "note"}}, // WO-223
 		{ID: string(awstype.FindingECRNoLifecyclePolicy), ShortDescription: sarifMessage{Text: "ECR repository with no lifecycle policy"}, DefaultConfig: sarifDefaultLevel{Level: "note"}},
 		{ID: string(awstype.FindingECRUntaggedImageSprawl), ShortDescription: sarifMessage{Text: "ECR repository with untagged-image sprawl"}, DefaultConfig: sarifDefaultLevel{Level: "warning"}},

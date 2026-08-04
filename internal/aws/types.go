@@ -58,6 +58,7 @@ const (
 	ResourceLogGroup      ResourceType = "log_group"      // WO-221: CloudWatch Logs retention scanner.
 	ResourceECR           ResourceType = "ecr_repository" // WO-225: ECR repository storage/untagged-image scanner.
 	ResourceENI           ResourceType = "eni"            // WO-223: unattached ENI hygiene scanner.
+	ResourceOpenSearch    ResourceType = "opensearch"     // WO-226: OpenSearch idle domain scanner.
 )
 
 // FindingID identifies the type of waste detected.
@@ -91,6 +92,7 @@ const (
 	FindingECRNoLifecyclePolicy   FindingID = "ECR_NO_LIFECYCLE_POLICY"   // WO-225: unbounded image retention risk.
 	FindingECRUntaggedImageSprawl FindingID = "ECR_UNTAGGED_IMAGE_SPRAWL" // WO-225: untagged images accumulating storage cost.
 	FindingUnattachedENI          FindingID = "UNATTACHED_ENI"            // WO-223: unattached ENI hygiene signal.
+	FindingOpenSearchIdle         FindingID = "OPENSEARCH_IDLE"           // WO-226: idle OpenSearch domain.
 )
 
 // Finding represents a single waste detection result.

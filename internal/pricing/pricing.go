@@ -191,3 +191,11 @@ func MonthlyECRStorageCost(storedBytes int64, region string) float64 {
 	gib := float64(storedBytes) / bytesPerGiB
 	return perGiB * gib
 }
+
+// MonthlyOpenSearchCost returns the estimated monthly cost for an OpenSearch
+// domain given its instance type and count. Uses a flat per-instance monthly
+// rate (lookupMonthly, "opensearch" default) scaled by instance count.
+func MonthlyOpenSearchCost(instanceType string, instanceCount int, region string) float64 {
+	cost, _ := lookupMonthly("opensearch", region)
+	return cost * float64(instanceCount)
+}

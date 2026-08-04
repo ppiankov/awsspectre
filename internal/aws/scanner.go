@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/opensearch"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -226,6 +227,7 @@ func (s *MultiRegionScanner) buildGlobalScanners(cfg awssdk.Config) []ResourceSc
 // buildScanners creates all resource scanners for a given region.
 func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 	ec2Client := ec2.NewFromConfig(cfg)
+	opensearchClient := opensearch.NewFromConfig(cfg)
 	cwClient := cloudwatch.NewFromConfig(cfg)
 	metrics := NewMetricsFetcher(cwClient)
 
@@ -267,6 +269,7 @@ func buildScanners(cfg awssdk.Config, region string) []ResourceScanner {
 		NewLogsScanner(logsClient, region),
 		NewECRScanner(ecrClient, region),
 		NewENIScanner(ec2Client, region),
+		NewOpenSearchScanner(opensearchClient, metrics, region),
 	}
 }
 
